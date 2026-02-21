@@ -1,0 +1,150 @@
+.order-detail-responsive {
+  width: 100%;
+  overflow-x: hidden;
+}
+
+.order-detail-card {
+  border-radius: 8px;
+}
+
+.order-detail-timeline {
+  display: flex;
+  min-width: 900px;
+  justify-content: space-between;
+  position: relative;
+  align-items: flex-start;
+}
+
+.order-detail-stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  min-width: 100px;
+}
+
+.order-detail-connector {
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  width: calc(100% - 48px);
+  height: 2px;
+  z-index: 0;
+}
+
+.order-detail-circle {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+  margin-bottom: 16px;
+}
+
+.order-detail-stage-title {
+  font-size: 14px;
+  margin-bottom: 10px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.order-detail-table-wrap {
+  overflow-x: auto;
+}
+
+/* Responsive */
+@media (max-width: 992px) {
+  .order-detail-timeline {
+    min-width: 700px;
+  }
+
+  .order-detail-stage {
+    min-width: 90px;
+  }
+}
+
+@media (max-width: 768px) {
+  .order-detail-timeline {
+    min-width: 600px;
+  }
+
+  .order-detail-circle {
+    width: 40px;
+    height: 40px;
+    margin-bottom: 12px;
+  }
+
+  .order-detail-connector {
+    top: 20px;
+    width: calc(100% - 40px);
+  }
+
+  .order-detail-stage-title {
+    font-size: 12px;
+  }
+
+  .order-detail-card .ant-card-head-wrapper {
+    flex-wrap: wrap;
+  }
+
+  .order-detail-card .ant-card-extra {
+    margin-top: 8px;
+    width: 100%;
+  }
+}
+
+@media (max-width: 576px) {
+  .order-detail-timeline {
+    min-width: 500px;
+  }
+
+  .order-detail-stage {
+    min-width: 70px;
+  }
+
+  .order-detail-circle {
+    width: 36px;
+    height: 36px;
+    font-size: 14px;
+    margin-bottom: 8px;
+  }
+
+  .order-detail-connector {
+    top: 18px;
+    width: calc(100% - 36px);
+  }
+
+  .order-detail-stage-title {
+    font-size: 11px;
+  }
+}
+
+.order-management-table-wrap {
+  overflow-x: auto;
+}
+
+@media (max-width: 768px) {
+  .order-management-card .ant-table-wrapper {
+    font-size: 12px;
+  }
+}
+
+.dashboard-responsive {
+  width: 100%;
+  overflow-x: hidden;
+}
+
+.dashboard-responsive .ant-row {
+  margin-left: -8px;
+  margin-right: -8px;
+}
+
+@media (max-width: 576px) {
+  .dashboard-responsive .ant-statistic-title {
+    font-size: 12px;
+  }
+}

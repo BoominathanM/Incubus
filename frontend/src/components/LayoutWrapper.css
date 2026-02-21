@@ -1,0 +1,152 @@
+.layout-wrapper .logo {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.layout-wrapper .logo img {
+  transition: all 0.3s ease;
+}
+
+.dark-theme .layout-wrapper .logo {
+  border-bottom: 1px solid #434343;
+}
+
+.layout-wrapper .sidebar .ant-menu-item-selected {
+  background-color: #15B9A4 !important;
+  color: #fff !important;
+}
+
+.layout-wrapper .sidebar .ant-menu-item-selected .anticon {
+  color: #fff !important;
+}
+
+.layout-wrapper .sidebar .ant-menu-item:hover {
+  background-color: rgba(21, 185, 164, 0.1) !important;
+}
+
+.dark-theme .layout-wrapper .sidebar .ant-menu-item:hover {
+  background-color: rgba(21, 185, 164, 0.2) !important;
+}
+
+/* Override Ant Design dark menu background */
+.dark-theme .layout-wrapper .sidebar .ant-menu.ant-menu-dark {
+  background: #141414 !important;
+}
+
+.dark-theme .layout-wrapper .sidebar .ant-menu.ant-menu-dark .ant-menu-item {
+  background: transparent !important;
+}
+
+/* Ensure selected menu item is visible in dark theme */
+.dark-theme .layout-wrapper .sidebar .ant-menu.ant-menu-dark .ant-menu-item-selected {
+  background-color: #15B9A4 !important;
+  color: #fff !important;
+}
+
+.dark-theme .layout-wrapper .sidebar .ant-menu.ant-menu-dark .ant-menu-item-selected .anticon {
+  color: #fff !important;
+}
+
+.layout-wrapper .header {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.layout-wrapper .content {
+  overflow-y: auto;
+}
+
+@media (max-width: 1200px) {
+  .layout-wrapper .content {
+    margin: 16px;
+    padding: 20px;
+  }
+}
+
+@media (max-width: 992px) {
+  .layout-wrapper .content {
+    margin: 12px;
+    padding: 16px;
+  }
+}
+
+@media (max-width: 768px) {
+  .layout-wrapper .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 1000;
+  }
+
+  .layout-wrapper .content {
+    margin: 12px;
+    padding: 16px;
+  }
+
+  .layout-wrapper .header {
+    padding: 0 16px;
+    flex-wrap: wrap;
+  }
+
+  .layout-wrapper .header .ant-space {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .layout-wrapper .logo {
+    padding: 10px;
+  }
+
+  .layout-wrapper .logo img {
+    max-width: 120px !important;
+  }
+}
+
+@media (max-width: 576px) {
+  .layout-wrapper .content {
+    margin: 8px;
+    padding: 12px;
+    min-height: calc(100vh - 96px) !important;
+  }
+
+  .layout-wrapper .header {
+    padding: 0 12px;
+    height: auto;
+    min-height: 64px;
+  }
+
+  .layout-wrapper .header .ant-btn {
+    width: 48px;
+    height: 48px;
+    padding: 0;
+  }
+
+  .layout-wrapper .logo {
+    padding: 8px;
+    height: 56px;
+  }
+
+  .layout-wrapper .logo img {
+    max-width: 100px !important;
+  }
+
+  .login-card {
+    max-width: 100%;
+    margin: 0 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .layout-wrapper .content {
+    margin: 4px;
+    padding: 8px;
+  }
+
+  .layout-wrapper .header {
+    padding: 0 8px;
+  }
+}
