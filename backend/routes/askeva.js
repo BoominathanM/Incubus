@@ -1,0 +1,24 @@
+const express = require('express')
+const router = express.Router()
+const { authenticate, requireAdminOrSuperadmin } = require('../middleware/auth')
+const askeva = require('../controllers/askevaController')
+
+router.use(authenticate)
+router.use(requireAdminOrSuperadmin)
+
+router.get('/config', askeva.getConfig)
+router.get('/credentials', askeva.getCredentials)
+router.post('/config', askeva.saveConfig)
+router.post('/test-connection', askeva.testConnection)
+router.post('/disconnect', askeva.disconnect)
+router.post('/sync-templates', askeva.syncTemplates)
+router.get('/templates', askeva.getTemplates)
+router.post('/templates/map-events', askeva.mapTemplateToEvents)
+router.get('/event-mappings', askeva.getEventTemplateMappings)
+router.get('/event-mappings/:id', askeva.getEventTemplateMapping)
+router.post('/event-mappings', askeva.saveEventTemplateMapping)
+router.put('/event-mappings/:id', askeva.saveEventTemplateMapping)
+router.delete('/event-mappings/:id', askeva.deleteEventTemplateMapping)
+router.post('/send-message', askeva.sendMessage)
+
+module.exports = router

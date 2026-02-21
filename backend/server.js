@@ -6,6 +6,8 @@ const seedSuperAdmin = require('./scripts/seed')
 const authRoutes = require('./routes/auth')
 const userRoutes = require('./routes/users')
 const countryCodesRoutes = require('./routes/countryCodes')
+const askevaRoutes = require('./routes/askeva')
+const askevaController = require('./controllers/askevaController')
 
 const app = express()
 const PORT = process.env.PORT || 7000
@@ -16,6 +18,8 @@ app.use(express.json())
 app.use('/api/auth', authRoutes)
 app.use('/api/users', userRoutes)
 app.use('/api/country-codes', countryCodesRoutes)
+app.use('/api/askeva', askevaRoutes)
+app.post('/api/askeva/webhook/:companyId', askevaController.handleWebhook)
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true })

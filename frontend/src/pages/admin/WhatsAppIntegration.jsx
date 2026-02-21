@@ -1,20 +1,22 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { 
-  Card, 
-  Tabs, 
-  Form, 
-  Input, 
-  Button, 
-  Space, 
-  Tag, 
-  Table, 
-  Switch, 
-  Typography, 
+import {
+  Card,
+  Tabs,
+  Form,
+  Input,
+  Button,
+  Space,
+  Tag,
+  Table,
+  Switch,
+  Typography,
   message,
   Modal,
   Select,
   Divider,
+  Spin,
+  Alert,
 } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -28,14 +30,39 @@ import {
   PlusOutlined,
   EditOutlined,
   DeleteOutlined,
-  GlobalOutlined,
   EyeOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons'
 import Breadcrumbs from '../../components/Breadcrumbs'
+import {
+  useGetAskevaConfigQuery,
+  useSaveAskevaConfigMutation,
+  useTestAskevaConnectionMutation,
+  useDisconnectAskevaMutation,
+  useSyncAskevaTemplatesMutation,
+  useGetAskevaTemplatesQuery,
+  useGetEventTemplateMappingsQuery,
+  useSaveEventTemplateMappingMutation,
+  useDeleteEventTemplateMappingMutation,
+} from '../../store/api/askevaApi'
 
 const { Title, Text } = Typography
 const { Option } = Select
-const { TextArea } = Input
+
+const DEFAULT_BACKEND_URL = 'https://backend.askeva.io'
+
+const HRMS_EVENT_OPTIONS = [
+  { value: 'Billing Invoice Generate', label: 'Billing Invoice' },
+  { value: 'Dispatch Order', label: 'Dispatch Order' },
+  { value: 'Delivery Completed', label: 'Delivery Completed' },
+]
+
+const TEMPLATE_FIELD_OPTIONS = [
+  { value: 'Candidate Name (Candidate)', label: 'Candidate Name (Candidate)' },
+  { value: 'Job Title (Job)', label: 'Job Title (Job)' },
+  { value: 'Department (Department)', label: 'Department (Department)' },
+  { value: 'Salary (Compensation)', label: 'Salary (Compensation)' },
+]
 
 const WhatsAppIntegration = () => {
   const navigate = useNavigate()
@@ -44,91 +71,58 @@ const WhatsAppIntegration = () => {
   const [eventForm] = Form.useForm()
   const [eventModalVisible, setEventModalVisible] = useState(false)
   const [disconnectModalVisible, setDisconnectModalVisible] = useState(false)
-  const [isConfigured, setIsConfigured] = useState(false)
   const [selectedTemplate, setSelectedTemplate] = useState(null)
   const [variableMappings, setVariableMappings] = useState([])
-  const [isEditMode, setIsEditMode] = useState(false)
+  const [editingMappingId, setEditingMappingId] = useState(null)
+  const [editConfigMode, setEditConfigMode] = useState(false)
 
-  // Mock templates data
-  const templates = [
-    {
-      key: '1',
-      templateName: 'notify_me',
-      components: 'BODY',
-      language: 'EN',
-      category: 'MARKETING',
-      active: true,
-      status: 'APPROVED',
-      mappedEvents: 'Billing Invoice Generate',
-      lastSynced: '2/5/2026, 11:15',
-    },
-    {
-      key: '2',
-      templateName: 'india_test',
-      components: 'BODY',
-      language: 'EN',
-      category: 'MARKETING',
-      active: true,
-      status: 'APPROVED',
-      mappedEvents: 'No events mapped',
-      lastSynced: '2/5/2026, 11:15',
-    },
-    {
-      key: '3',
-      templateName: 'cta_static_testing',
-      components: 'HEADER BODY FOOTER BUTTONS',
-      language: 'SQ',
-      category: 'MARKETING',
-      active: true,
-      status: 'APPROVED',
-      mappedEvents: 'No events mapped',
-      lastSynced: '2/5/2026, 11:15',
-    },
-    {
-      key: '4',
-      templateName: 'cta_dynamic_testing',
-      components: 'HEADER BODY FOOTER BUTTONS',
-      language: 'EN',
-      category: 'MARKETING',
-      active: true,
-      status: 'APPROVED',
-      mappedEvents: 'No events mapped',
-      lastSynced: '2/5/2026, 11:15',
-    },
-    {
-      key: '5',
-      templateName: 'cta_dynamic_staic',
-      components: 'HEADER BODY FOOTER BUTTONS',
-      language: 'EN',
-      category: 'MARKETING',
-      active: true,
-      status: 'APPROVED',
-      mappedEvents: 'No events mapped',
-      lastSynced: '2/5/2026, 11:15',
-    },
-    {
-      key: '6',
-      templateName: 'dynamic_website',
-      components: 'BODY BUTTONS',
-      language: 'EN',
-      category: 'MARKETING',
-      active: true,
-      status: 'APPROVED',
-      mappedEvents: 'No events mapped',
-      lastSynced: '2/5/2026, 11:15',
-    },
-  ]
+  const { data: configRes, isLoading: configLoading } = useGetAskevaConfigQuery()
+  const [saveConfig, { isLoading: saveConfigLoading }] = useSaveAskevaConfigMutation()
+  const [testConnection, { isLoading: testLoading }] = useTestAskevaConnectionMutation()
+  const [disconnect, { isLoading: disconnectLoading }] = useDisconnectAskevaMutation()
+  const [syncTemplates, { isLoading: syncLoading }] = useSyncAskevaTemplatesMutation()
+  const { data: templatesRes, isLoading: templatesLoading } = useGetAskevaTemplatesQuery(
+    { limit: 1000 },
+    { skip: activeTab !== 'templates' && activeTab !== 'eventMapping' }
+  )
+  const { data: mappingsRes, isLoading: mappingsLoading } = useGetEventTemplateMappingsQuery(undefined, {
+    skip: activeTab !== 'eventMapping',
+  })
+  const [saveEventMapping, { isLoading: saveMappingLoading }] = useSaveEventTemplateMappingMutation()
+  const [deleteEventMapping] = useDeleteEventTemplateMappingMutation()
 
-  // Mock event mappings
-  const eventMappings = [
-    {
-      key: '1',
-      eventType: 'Billing Invoice Generate',
-      template: 'notify_me en',
-      variablesMapped: 2,
-      status: true, // true = Enabled, false = Disabled
-    },
-  ]
+  const config = configRes?.data?.config ?? null
+  const isConfigured = !!config
+  const isConnected = config?.isConnected ?? false
+  const connectionError = config?.connectionError || null
+  const fieldsDisabled = isConfigured && !editConfigMode
+  const templates = templatesRes?.data?.templates ?? []
+  const eventMappings = (mappingsRes?.data?.mappings ?? []).map((m) => ({
+    ...m,
+    key: m._id,
+    eventType: m.hrmsEventType,
+    template: m.templateName || (m.templateId?.templateName && `${m.templateId.templateName} (${m.templateId.language || ''})`) || '—',
+    variablesMapped: (m.variables || []).length,
+    status: m.isEnabled,
+  }))
+
+  useEffect(() => {
+    if (isConfigured && config) {
+      form.setFieldsValue({
+        backendUrl: config.backendUrl || DEFAULT_BACKEND_URL,
+        apiKey: '••••••••',
+      })
+    } else if (!isConfigured) {
+      form.setFieldsValue({
+        backendUrl: DEFAULT_BACKEND_URL,
+        apiKey: '',
+      })
+    }
+  }, [isConfigured, config, form])
+
+  const lastSyncedAt = config?.lastSyncedAt
+    ? new Date(config.lastSyncedAt).toLocaleString()
+    : null
 
   const templateColumns = [
     {
@@ -140,7 +134,11 @@ const WhatsAppIntegration = () => {
       title: 'Components',
       dataIndex: 'components',
       key: 'components',
-      render: (text) => <Text style={{ color: '#15B9A4' }}>{text}</Text>,
+      render: (comp) => (
+        <Text style={{ color: '#15B9A4' }}>
+          {Array.isArray(comp) ? comp.join(' ') : (comp || '—')}
+        </Text>
+      ),
     },
     {
       title: 'Language',
@@ -151,57 +149,60 @@ const WhatsAppIntegration = () => {
       title: 'Category',
       dataIndex: 'category',
       key: 'category',
-      render: (category) => <Tag color="#6754A3">{category}</Tag>,
+      render: (c) => <Tag color="#6754A3">{c || '—'}</Tag>,
     },
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      render: (status) => <Tag color="#52c41a">{status}</Tag>,
+      render: (s) => <Tag color="#52c41a">{s || '—'}</Tag>,
     },
     {
       title: 'Mapped Events',
-      dataIndex: 'mappedEvents',
       key: 'mappedEvents',
-      render: (text) => (
-        <Text style={{ color: text === 'No events mapped' ? '#999' : '#15B9A4' }}>
-          {text}
-        </Text>
-      ),
+      render: (_, record) => {
+        const events = record.mappedEventTypes || []
+        const text = events.length ? events.join(', ') : 'No events mapped'
+        return (
+          <Text style={{ color: events.length ? '#15B9A4' : '#999' }}>{text}</Text>
+        )
+      },
     },
     {
       title: 'Actions',
       key: 'actions',
       render: (_, record) => (
-        <Space direction="vertical" size="small">
-          <Button
-            type="primary"
-            size="small"
-            onClick={() => {
-              setSelectedTemplate(record)
-              setIsEditMode(false)
-              eventForm.resetFields()
-              setEventModalVisible(true)
-            }}
-          >
-            Map Events
-          </Button>
-          <div>
-            <Text style={{ marginRight: 8 }}>Active:</Text>
-            <Switch
-              checked={record.active}
-              onChange={(checked) => {
-                message.success(`Template ${checked ? 'activated' : 'deactivated'}`)
-              }}
-            />
-          </div>
-        </Space>
+        <Button
+          type="primary"
+          size="small"
+          onClick={() => {
+            setSelectedTemplate(record)
+            setEditingMappingId(null)
+            eventForm.resetFields()
+            setVariableMappings(
+              (record.components || []).length
+                ? (Array.isArray(record.components) ? record.components : [record.components])
+                    .slice(0, 5)
+                    .map((_, i) => ({
+                      templateVariable: `{{${i + 1}}}`,
+                      hrmsField: '',
+                      defaultValue: '',
+                      mapped: false,
+                    }))
+                : [{ templateVariable: '{{1}}', hrmsField: '', defaultValue: '', mapped: false }]
+            )
+            setEventModalVisible(true)
+          }}
+        >
+          Map Events
+        </Button>
       ),
     },
     {
       title: 'Last Synced',
-      dataIndex: 'lastSynced',
-      key: 'lastSynced',
+      dataIndex: 'lastSyncedAt',
+      key: 'lastSyncedAt',
+      render: (d) => (d ? new Date(d).toLocaleString() : '—'),
     },
   ]
 
@@ -241,17 +242,26 @@ const WhatsAppIntegration = () => {
             type="primary"
             icon={<EditOutlined />}
             onClick={() => {
-              setIsEditMode(true)
+              setEditingMappingId(record._id)
+              const raw = mappingsRes?.data?.mappings?.find((m) => m._id === record._id)
               eventForm.setFieldsValue({
-                eventType: record.eventType,
-                template: 'notify_me',
-                status: true,
+                hrmsEventType: record.eventType,
+                templateId: raw?.templateId?._id || raw?.templateId,
+                status: record.status,
               })
-              setSelectedTemplate({ templateName: 'notify_me', language: 'en' })
-              setVariableMappings([
-                { variable: '{{1}}', hrmsField: 'Candidate Name (Candidate)', defaultValue: '', mapped: true },
-                { variable: '{{2}}', hrmsField: 'Job Title (Job)', defaultValue: '', mapped: true },
-              ])
+              setSelectedTemplate(
+                raw?.templateId
+                  ? { _id: raw.templateId._id, templateName: raw.templateId.templateName, language: raw.templateId.language }
+                  : null
+              )
+              setVariableMappings(
+                (raw?.variables || []).map((v) => ({
+                  templateVariable: v.templateVariable,
+                  hrmsField: v.hrmsField,
+                  defaultValue: v.defaultValue || '',
+                  mapped: true,
+                }))
+              )
               setEventModalVisible(true)
             }}
           >
@@ -264,7 +274,14 @@ const WhatsAppIntegration = () => {
               Modal.confirm({
                 title: 'Delete Event Mapping',
                 content: 'Are you sure you want to delete this event mapping?',
-                onOk: () => message.success('Event mapping deleted'),
+                onOk: async () => {
+                  try {
+                    await deleteEventMapping(record._id).unwrap()
+                    message.success('Event mapping deleted')
+                  } catch (e) {
+                    message.error(e?.data?.error?.message || 'Failed to delete')
+                  }
+                },
               })
             }}
           >
@@ -275,59 +292,121 @@ const WhatsAppIntegration = () => {
     },
   ]
 
-  const handleSyncTemplates = () => {
-    message.success('Templates synced successfully')
+  const handleSyncTemplates = async () => {
+    try {
+      const res = await syncTemplates().unwrap()
+      message.success(res?.data?.message || 'Templates synced successfully')
+    } catch (e) {
+      message.error(e?.data?.error?.message || e?.error?.message || 'Failed to sync templates')
+    }
   }
 
-  const handleSaveConfiguration = () => {
-    form.validateFields().then(() => {
-      setIsConfigured(true)
+  const handleSaveConfiguration = async () => {
+    try {
+      const values = await form.validateFields()
+      const apiKey = values.apiKey?.trim()
+      if (!apiKey || apiKey === '••••••••') {
+        message.error('Please enter a valid API Key / Access Token')
+        return
+      }
+      await saveConfig({
+        backendUrl: values.backendUrl || DEFAULT_BACKEND_URL,
+        apiKey,
+      }).unwrap()
+      setEditConfigMode(false)
+      form.setFieldsValue({ apiKey: '••••••••' })
       message.success('Configuration saved successfully')
-    })
+    } catch (e) {
+      message.error(e?.data?.error?.message || e?.error?.message || 'Failed to save configuration')
+    }
   }
 
-  const handleDisconnect = () => {
-    setDisconnectModalVisible(true)
+  const handleTestConnection = async () => {
+    try {
+      const values = form.getFieldsValue()
+      await testConnection({
+        backendUrl: values.backendUrl || DEFAULT_BACKEND_URL,
+        apiKey: values.apiKey && values.apiKey !== '••••••••' ? values.apiKey : undefined,
+      }).unwrap()
+      message.success('Connection successful')
+    } catch (e) {
+      message.error(e?.data?.error?.message || e?.error?.message || 'Connection failed')
+    }
   }
 
-  const confirmDisconnect = () => {
-    setIsConfigured(false)
-    form.resetFields()
-    message.success('Integration disconnected')
-    setDisconnectModalVisible(false)
+  const handleDisconnect = () => setDisconnectModalVisible(true)
+
+  const confirmDisconnect = async () => {
+    try {
+      await disconnect().unwrap()
+      setEditConfigMode(false)
+      form.setFieldsValue({ backendUrl: DEFAULT_BACKEND_URL, apiKey: '' })
+      message.success('Integration disconnected. You can enter new credentials now.')
+      setDisconnectModalVisible(false)
+    } catch (e) {
+      message.error(e?.data?.error?.message || 'Failed to disconnect')
+    }
   }
 
-  const handleSaveEventMapping = () => {
-    eventForm.validateFields().then(() => {
-      message.success(`Event mapping ${isEditMode ? 'updated' : 'created'} successfully`)
+  const handleSaveEventMapping = async () => {
+    try {
+      const values = await eventForm.validateFields()
+      const variables = variableMappings
+        .filter((v) => v.templateVariable && v.hrmsField)
+        .map((v) => ({
+          templateVariable: v.templateVariable,
+          hrmsField: v.hrmsField,
+          defaultValue: v.defaultValue || '',
+        }))
+      if (!variables.length) {
+        message.error('Map at least one template variable to a field')
+        return
+      }
+      await saveEventMapping({
+        id: editingMappingId || undefined,
+        hrmsEventType: values.hrmsEventType,
+        templateId: values.templateId,
+        templateName: selectedTemplate?.templateName,
+        isEnabled: values.status !== false,
+        variables,
+      }).unwrap()
+      message.success(editingMappingId ? 'Event mapping updated' : 'Event mapping created')
       setEventModalVisible(false)
       eventForm.resetFields()
       setVariableMappings([])
       setSelectedTemplate(null)
-      setIsEditMode(false)
-    })
+      setEditingMappingId(null)
+    } catch (e) {
+      message.error(e?.data?.error?.message || e?.error?.message || 'Failed to save mapping')
+    }
   }
 
-  const handleTemplateSelect = (templateName) => {
-    const template = templates.find(t => t.templateName === templateName)
-    setSelectedTemplate(template)
-    // Mock variables based on template
-    if (templateName === 'notify_me') {
-      setVariableMappings([
-        { variable: '{{1}}', hrmsField: 'Candidate Name (Candidate)', defaultValue: '', mapped: isEditMode },
-        { variable: '{{2}}', hrmsField: 'Job Title (Job)', defaultValue: '', mapped: isEditMode },
-      ])
-    } else if (templateName === 'india_test') {
-      setVariableMappings([
-        { variable: '{{1}}', hrmsField: '', defaultValue: '', mapped: false },
-      ])
+  const handleTemplateSelect = (templateId) => {
+    const template = templates.find((t) => t._id === templateId)
+    setSelectedTemplate(template || null)
+    if (template) {
+      const comps = template.components
+      const arr = Array.isArray(comps) ? comps : comps ? [comps] : []
+      setVariableMappings(
+        arr.length
+          ? arr.slice(0, 5).map((_, i) => ({
+              templateVariable: `{{${i + 1}}}`,
+              hrmsField: '',
+              defaultValue: '',
+              mapped: false,
+            }))
+          : [{ templateVariable: '{{1}}', hrmsField: '', defaultValue: '', mapped: false }]
+      )
     } else {
       setVariableMappings([])
     }
   }
 
   const handleAddVariableMapping = () => {
-    setVariableMappings([...variableMappings, { variable: '', hrmsField: '', defaultValue: '', mapped: false }])
+    setVariableMappings([
+      ...variableMappings,
+      { templateVariable: `{{${variableMappings.length + 1}}}`, hrmsField: '', defaultValue: '', mapped: false },
+    ])
   }
 
   const handleRemoveVariableMapping = (index) => {
@@ -336,7 +415,7 @@ const WhatsAppIntegration = () => {
 
   const handleMapVariable = (index) => {
     const updated = [...variableMappings]
-    updated[index].mapped = true
+    updated[index] = { ...updated[index], mapped: true }
     setVariableMappings(updated)
   }
 
@@ -360,44 +439,84 @@ const WhatsAppIntegration = () => {
                 </Title>
               </Space>
             }
+            loading={configLoading}
           >
-            <Form form={form} layout="vertical">
+            <Form form={form} layout="vertical" initialValues={{ backendUrl: DEFAULT_BACKEND_URL }}>
+              <Form.Item
+                name="backendUrl"
+                label="Backend URL *"
+                rules={[{ required: true, message: 'Please enter Backend URL' }]}
+              >
+                <Input
+                  placeholder="https://backend.askeva.io"
+                  disabled={fieldsDisabled}
+                />
+              </Form.Item>
               <Form.Item
                 name="apiKey"
                 label="API Key / Access Token *"
                 rules={[{ required: true, message: 'Please enter API Key' }]}
               >
                 <Input.Password
-                  placeholder="Enter API Key / Access Token"
+                  placeholder={
+                    fieldsDisabled
+                      ? 'Saved (click Edit configuration to change)'
+                      : 'Enter API Key / Access Token (e.g. token from send-message URL)'
+                  }
                   prefix={<EyeOutlined />}
-                  disabled={isConfigured}
+                  disabled={fieldsDisabled}
                 />
               </Form.Item>
-              {!isConfigured ? (
+              {!isConfigured || editConfigMode ? (
                 <Form.Item>
-                  <Button
-                    type="primary"
-                    onClick={handleSaveConfiguration}
-                    style={{ width: '100%' }}
-                  >
-                    Save Configuration
-                  </Button>
+                  <Space wrap>
+                    <Button
+                      type="primary"
+                      loading={saveConfigLoading}
+                      onClick={handleSaveConfiguration}
+                    >
+                      {editConfigMode ? 'Save changes' : 'Save Configuration'}
+                    </Button>
+                    {editConfigMode && (
+                      <Button onClick={() => { setEditConfigMode(false); form.setFieldsValue({ apiKey: '••••••••' }); }}>
+                        Cancel
+                      </Button>
+                    )}
+                  </Space>
                 </Form.Item>
               ) : (
                 <>
-                  <Divider />
-                  <Space>
+                  <Space wrap>
+                    <Button
+                      type="primary"
+                      icon={<ThunderboltOutlined />}
+                      loading={testLoading}
+                      onClick={handleTestConnection}
+                    >
+                      Test Connection
+                    </Button>
+                    <Button
+                      icon={<EditOutlined />}
+                      onClick={() => {
+                        setEditConfigMode(true)
+                        form.setFieldsValue({ apiKey: '' })
+                      }}
+                    >
+                      Edit configuration
+                    </Button>
                     <Button
                       danger
                       icon={<DisconnectOutlined />}
+                      loading={disconnectLoading}
                       onClick={handleDisconnect}
                     >
                       Disconnect
                     </Button>
-                    <Text type="secondary" style={{ fontSize: '12px' }}>
-                      <LockOutlined /> All sensitive data is encrypted
-                    </Text>
                   </Space>
+                  <Divider />
+                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                    <LockOutlined /> All sensitive data is encrypted. Disconnect removes saved config so you can enter new credentials.
+                  </Text>
                 </>
               )}
             </Form>
@@ -428,26 +547,32 @@ const WhatsAppIntegration = () => {
               <Button
                 type="primary"
                 icon={<SyncOutlined />}
+                loading={syncLoading}
+                disabled={!isConfigured}
                 onClick={handleSyncTemplates}
               >
                 Sync Templates
               </Button>
             }
+            loading={templatesLoading}
           >
             <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-              Manage and sync message templates.
+              Manage and sync message templates from your Askeva/WhatsApp account.
             </Text>
-            <div style={{ marginBottom: 16, padding: '12px', background: '#f6ffed', borderRadius: '4px' }}>
-              <Text style={{ color: '#15B9A4' }}>
-                Last synced: 2/5/2026, 11:15:02 AM
-              </Text>
-              <br />
-              <Text style={{ color: '#52c41a' }}>Successfully synced templates</Text>
-            </div>
+            {lastSyncedAt && (
+              <div style={{ marginBottom: 16, padding: '12px', background: '#f6ffed', borderRadius: '4px' }}>
+                <Text style={{ color: '#15B9A4' }}>Last synced: {lastSyncedAt}</Text>
+                <br />
+                <Text style={{ color: '#52c41a' }}>
+                  {templates.length} template(s) synced
+                </Text>
+              </div>
+            )}
             <Table
               columns={templateColumns}
-              dataSource={templates}
-              pagination={false}
+              dataSource={templates.map((t) => ({ ...t, key: t._id }))}
+              pagination={{ pageSize: 10, showTotal: (total) => `Total ${total} templates` }}
+              locale={{ emptyText: isConfigured ? 'No templates yet. Click Sync Templates.' : 'Configure WhatsApp first.' }}
             />
           </Card>
         </div>
@@ -476,7 +601,11 @@ const WhatsAppIntegration = () => {
               <Button
                 type="primary"
                 icon={<PlusOutlined />}
+                disabled={!isConfigured || !templates.length}
                 onClick={() => {
+                  setEditingMappingId(null)
+                  setSelectedTemplate(null)
+                  setVariableMappings([])
                   eventForm.resetFields()
                   setEventModalVisible(true)
                 }}
@@ -484,6 +613,7 @@ const WhatsAppIntegration = () => {
                 Create New Mapping
               </Button>
             }
+            loading={mappingsLoading}
           >
             <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
               Configure templates and variable mappings for each event.
@@ -496,6 +626,7 @@ const WhatsAppIntegration = () => {
                 pageSize: 10,
                 showTotal: (total) => `Total ${total} mappings`,
               }}
+              locale={{ emptyText: 'No event mappings yet. Create one to link events to templates.' }}
             />
           </Card>
         </div>
@@ -506,6 +637,41 @@ const WhatsAppIntegration = () => {
   return (
     <div>
       <Breadcrumbs />
+      {connectionError && (
+        <Alert
+          style={{ marginBottom: 24 }}
+          type="error"
+          showIcon
+          message="Connection verification failed"
+          description={connectionError}
+        />
+      )}
+      {isConfigured && !connectionError && (
+        <Alert
+          style={{ marginBottom: 24 }}
+          type={isConnected ? 'success' : 'warning'}
+          showIcon
+          message={
+            isConnected
+              ? 'Integration connected'
+              : 'Integration disconnected'
+          }
+          description={
+            isConnected
+              ? 'WhatsApp is connected and ready. Use the Templates tab to sync templates.'
+              : 'Configuration is saved but connection has not been verified. Click Test Connection or Edit configuration to update the API key.'
+          }
+        />
+      )}
+      {!isConfigured && (
+        <Alert
+          style={{ marginBottom: 24 }}
+          type="info"
+          showIcon
+          message="Integration disconnected"
+          description="Enter your Backend URL and API Key below, then click Save Configuration. Use the token from your Askeva send-message URL as the API Key."
+        />
+      )}
       <Card style={{ marginBottom: 24 }}>
         <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }}>
           <Space>
@@ -525,11 +691,16 @@ const WhatsAppIntegration = () => {
             </Title>
           </Space>
           <Space>
-            <Tag icon={<CheckCircleOutlined />} color="success">
-              Connected
-            </Tag>
-            <Tag icon={<InfoCircleOutlined />} color="success">
-              Configured
+            {isConfigured && (
+              <Tag
+                icon={<CheckCircleOutlined />}
+                color={isConnected ? 'success' : 'default'}
+              >
+                {isConnected ? 'Connected' : 'Not verified'}
+              </Tag>
+            )}
+            <Tag icon={<InfoCircleOutlined />} color={isConfigured ? 'success' : 'default'}>
+              {isConfigured ? 'Configured' : 'Not configured'}
             </Tag>
           </Space>
         </Space>
@@ -545,7 +716,7 @@ const WhatsAppIntegration = () => {
 
       {/* Event Mapping Modal */}
       <Modal
-        title={isEditMode ? 'Edit Event Template Mapping' : 'Create Event Template Mapping'}
+        title={editingMappingId ? 'Edit Event Template Mapping' : 'Create Event Template Mapping'}
         open={eventModalVisible}
         onOk={handleSaveEventMapping}
         onCancel={() => {
@@ -553,48 +724,42 @@ const WhatsAppIntegration = () => {
           eventForm.resetFields()
           setVariableMappings([])
           setSelectedTemplate(null)
-          setIsEditMode(false)
+          setEditingMappingId(null)
         }}
         width={800}
         okText="Save"
+        confirmLoading={saveMappingLoading}
       >
         <Form form={eventForm} layout="vertical">
           <Form.Item
-            name="eventType"
-            label=" Event Type"
+            name="hrmsEventType"
+            label="Event Type"
             rules={[{ required: true, message: 'Please select event type' }]}
           >
             <Select placeholder="Select event type">
-              <Option value="Candidate Applied">Billing Invoice</Option>
-              <Option value="Interview Scheduled">Dispatch Order</Option>
-              <Option value="Onboarding Started">Delivery Completed</Option>
-            </Select>
-          </Form.Item>
-          <Form.Item
-            name="template"
-            label=" Template"
-            rules={[{ required: true, message: 'Please select template' }]}
-          >
-            <Select 
-              placeholder="Select template"
-              onChange={handleTemplateSelect}
-            >
-              {templates.map((t) => (
-                <Option key={t.key} value={t.templateName}>
-                  {t.templateName} ({t.language})
-                </Option>
+              {HRMS_EVENT_OPTIONS.map((o) => (
+                <Option key={o.value} value={o.value}>{o.label}</Option>
               ))}
             </Select>
           </Form.Item>
           <Form.Item
-            name="status"
-            label="Status"
+            name="templateId"
+            label="Template"
+            rules={[{ required: true, message: 'Please select template' }]}
           >
-            <Switch
-              checkedChildren="Enabled"
-              unCheckedChildren="Disabled"
-              defaultChecked={true}
+            <Select
+              placeholder="Select template"
+              onChange={handleTemplateSelect}
+              showSearch
+              optionFilterProp="label"
+              options={templates.map((t) => ({
+                value: t._id,
+                label: `${t.templateName} (${t.language || ''})`,
+              }))}
             />
+          </Form.Item>
+          <Form.Item name="status" label="Status" valuePropName="checked">
+            <Switch checkedChildren="Enabled" unCheckedChildren="Disabled" />
           </Form.Item>
           <Divider />
           <Title level={5}>Variable Mapping</Title>
@@ -602,25 +767,15 @@ const WhatsAppIntegration = () => {
             <div>
               {variableMappings.length > 0 ? (
                 <>
-                  <div style={{ 
-                    padding: '12px', 
-                    background: '#f6ffed', 
-                    borderRadius: '4px', 
-                    marginBottom: 16 
-                  }}>
+                  <div style={{ padding: '12px', background: '#f6ffed', borderRadius: '4px', marginBottom: 16 }}>
                     <Space>
                       <CheckCircleOutlined style={{ color: '#52c41a' }} />
-                      <Text>
-                        Template has {variableMappings.length} variables - All must be mapped.
-                      </Text>
+                      <Text>Template has {variableMappings.length} variable(s). Map each to a field.</Text>
                     </Space>
-                    <div style={{ marginTop: 8, fontSize: '12px', color: '#666' }}>
-                      Required: All template variables must be mapped to template fields or have template values.
-                    </div>
                     <div style={{ marginTop: 8 }}>
                       {variableMappings.map((vm, idx) => (
-                        <Tag key={idx} color="#52c41a" style={{ marginRight: 8 }}>
-                          {vm.variable} ✓
+                        <Tag key={idx} color={vm.hrmsField ? '#52c41a' : 'default'} style={{ marginRight: 8 }}>
+                          {vm.templateVariable} {vm.hrmsField ? '✓' : ''}
                         </Tag>
                       ))}
                     </div>
@@ -629,92 +784,50 @@ const WhatsAppIntegration = () => {
                     <Card key={index} size="small" style={{ marginBottom: 16 }}>
                       <Space direction="vertical" style={{ width: '100%' }}>
                         <Form.Item label="Template Variable">
-                          <Input value={vm.variable} readOnly />
+                          <Input value={vm.templateVariable} readOnly />
                         </Form.Item>
-                        <Form.Item
-                          label=" Template Field "
-                          rules={[{ required: true }]}
-                        >
-                          <Select placeholder="Select template field">
-                            <Option value="Candidate Name (Candidate)">Candidate Name (Candidate)</Option>
-                            <Option value="Job Title (Job)">Job Title (Job)</Option>
-                            <Option value="Department (Department)">Department (Department)</Option>
-                            <Option value="Salary (Compensation)">Salary (Compensation)</Option>
-                          </Select>
-                        </Form.Item>
-                        <Form.Item label="Template Value">
-                          <Input 
-                            placeholder="Optional"
-                            value={vm.defaultValue}
+                        <Form.Item label="Template Field" required>
+                          <Select
+                            placeholder="Select field"
+                            value={vm.hrmsField || undefined}
+                            onChange={(val) => {
+                              const next = [...variableMappings]
+                              next[index] = { ...next[index], hrmsField: val, mapped: !!val }
+                              setVariableMappings(next)
+                            }}
+                            options={TEMPLATE_FIELD_OPTIONS}
                           />
-                          <Text type="secondary" style={{ fontSize: '12px' }}>
-                            Use if template field value is missing.
-                          </Text>
                         </Form.Item>
-                        <Space>
-                          {vm.mapped ? (
-                            <Button type="primary" icon={<CheckCircleOutlined />}>
-                              ✔ Mapped
-                            </Button>
-                          ) : (
-                            <Button 
-                              type="primary" 
-                              onClick={() => handleMapVariable(index)}
-                            >
-                              Map Variable
-                            </Button>
-                          )}
-                          <Button 
-                            danger 
-                            onClick={() => handleRemoveVariableMapping(index)}
-                          >
-                            Remove
-                          </Button>
-                        </Space>
+                        <Form.Item label="Default Value (optional)">
+                          <Input
+                            placeholder="Use if field value is missing"
+                            value={vm.defaultValue}
+                            onChange={(e) => {
+                              const next = [...variableMappings]
+                              next[index] = { ...next[index], defaultValue: e.target.value }
+                              setVariableMappings(next)
+                            }}
+                          />
+                        </Form.Item>
+                        <Button danger size="small" onClick={() => handleRemoveVariableMapping(index)}>
+                          Remove
+                        </Button>
                       </Space>
                     </Card>
                   ))}
                 </>
               ) : (
-                <div style={{ 
-                  padding: '24px', 
-                  background: '#e6f7ff', 
-                  borderRadius: '4px',
-                  textAlign: 'center',
-                  marginBottom: 16
-                }}>
-                  <Text type="secondary">
-                    Select a template
-                  </Text>
-                  <br />
-                  <Text type="secondary" style={{ fontSize: '12px' }}>
-                    Please select a template first to see its variables
-                  </Text>
+                <div style={{ padding: '24px', background: '#e6f7ff', borderRadius: '4px', textAlign: 'center', marginBottom: 16 }}>
+                  <Text type="secondary">This template has no variables, or add one below.</Text>
                 </div>
               )}
-              <Button 
-                type="dashed" 
-                icon={<PlusOutlined />}
-                onClick={handleAddVariableMapping}
-                style={{ width: '100%' }}
-              >
-                Add Additional Variable Mapping
+              <Button type="dashed" icon={<PlusOutlined />} onClick={handleAddVariableMapping} style={{ width: '100%' }}>
+                Add Variable Mapping
               </Button>
             </div>
           ) : (
-            <div style={{ 
-              padding: '24px', 
-              background: '#e6f7ff', 
-              borderRadius: '4px',
-              textAlign: 'center'
-            }}>
-              <Text type="secondary">
-                Select a template
-              </Text>
-              <br />
-              <Text type="secondary" style={{ fontSize: '12px' }}>
-                Please select a template first to see its variables
-              </Text>
+            <div style={{ padding: '24px', background: '#e6f7ff', borderRadius: '4px', textAlign: 'center' }}>
+              <Text type="secondary">Select a template to see and map variables.</Text>
             </div>
           )}
         </Form>
