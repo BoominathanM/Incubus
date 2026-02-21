@@ -1,13 +1,8 @@
 import React, { useState } from 'react'
-import { Layout, Menu, Avatar, Dropdown, Button, Space, Typography, Badge, List, Empty, Divider } from 'antd'
+import { Layout, Menu, Avatar, Dropdown, Button, Space, Typography, Badge, List, Empty, Divider, Drawer, Form, Input, message } from 'antd'
 import {
-  DashboardOutlined,
-  ShoppingCartOutlined,
   UserOutlined,
-  TeamOutlined,
-  MessageOutlined,
   LogoutOutlined,
-  SettingOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   MoonOutlined,
@@ -20,13 +15,29 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
+import { useUpdateUserMutation } from '../store/api/userApi'
+import axios from 'axios'
 import './LayoutWrapper.css'
+
+const API_BASE = import.meta.env.VITE_API_URL || ''
+
+const ROLE_LABELS = {
+  superadmin: 'Super Admin',
+  admin: 'Admin',
+  executive: 'Executive Agent',
+  billing: 'Billing Agent',
+  warehouse: 'Warehouse & Delivery Agent',
+}
 
 const { Header, Sider, Content } = Layout
 const { Text } = Typography
 
 const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
   const [collapsed, setCollapsed] = useState(false)
+  const [profileDrawerOpen, setProfileDrawerOpen] = useState(false)
+  const [passwordForm] = Form.useForm()
+  const [changingPassword, setChangingPassword] = useState(false)
+  const [updateUser] = useUpdateUserMutation()
   const [notifications, setNotifications] = useState([
     {
       key: '1',
@@ -77,20 +88,16 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
     navigate('/login')
   }
 
+  const isAdminOrSuperadmin = user?.role === 'superadmin' || user?.role === 'admin'
+
   const userMenuItems = [
     {
       key: 'profile',
       icon: <UserOutlined />,
       label: 'Profile',
+      onClick: () => setProfileDrawerOpen(true),
     },
-    {
-      key: 'password',
-      icon: <SettingOutlined />,
-      label: 'Change Password',
-    },
-    {
-      type: 'divider',
-    },
+    { type: 'divider' },
     {
       key: 'logout',
       icon: <LogoutOutlined />,
@@ -99,6 +106,43 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
       onClick: handleLogout,
     },
   ]
+
+  const onCloseProfileDrawer = () => {
+    setProfileDrawerOpen(false)
+    passwordForm.resetFields()
+  }
+
+  const onFinishPassword = async (values) => {
+    setChangingPassword(true)
+    try {
+      const userId = user?.id || user?._id
+      if (isAdminOrSuperadmin) {
+        await updateUser({
+          id: userId,
+          newPassword: values.newPassword,
+          confirmNewPassword: values.confirmNewPassword,
+        }).unwrap()
+      } else {
+        const token = localStorage.getItem('token')
+        await axios.post(
+          `${API_BASE}/api/auth/change-password`,
+          {
+            currentPassword: values.currentPassword,
+            newPassword: values.newPassword,
+            confirmNewPassword: values.confirmNewPassword,
+          },
+          { headers: { Authorization: `Bearer ${token}` } }
+        )
+      }
+      message.success('Password changed successfully')
+      passwordForm.resetFields()
+    } catch (err) {
+      const msg = err?.data?.message || err?.response?.data?.message || err?.message || 'Failed to change password'
+      message.error(msg)
+    } finally {
+      setChangingPassword(false)
+    }
+  }
 
   const unreadCount = notifications.filter(n => !n.read).length
 
@@ -269,33 +313,70 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
         collapsible
         collapsed={collapsed}
         width={250}
-        className="sidebar"
+        className="sidebar sidebar-with-logout"
         style={{
           background: isDark ? '#141414' : '#fff',
           borderRight: `1px solid ${isDark ? '#434343' : '#e8e8e8'}`,
         }}
       >
-        <div className="logo">
-          <img 
-            src="/Gadgets logo.png" 
-            alt="Logo" 
-            style={{ 
-              maxWidth: collapsed ? '40px' : '150px', 
-              height: 'auto',
-              objectFit: 'contain'
-            }} 
-          />
-        </div>
-        <Menu
-          theme={isDark ? 'dark' : 'light'}
-          mode="inline"
-          selectedKeys={[getSelectedKey()]}
-          items={menuItems}
-          onClick={handleMenuClick}
+        <div
+          className="sidebar-inner"
           style={{
-            borderRight: 'none',
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%',
+            minHeight: '100vh',
           }}
-        />
+        >
+          <div className="logo">
+            <img 
+              src="/Gadgets logo.png" 
+              alt="Logo" 
+              style={{ 
+                maxWidth: collapsed ? '40px' : '150px', 
+                height: 'auto',
+                objectFit: 'contain'
+              }} 
+            />
+          </div>
+          <Menu
+            theme={isDark ? 'dark' : 'light'}
+            mode="inline"
+            selectedKeys={[getSelectedKey()]}
+            items={menuItems}
+            onClick={handleMenuClick}
+            style={{
+              borderRight: 'none',
+              flex: 1,
+              overflow: 'auto',
+            }}
+          />
+          <div
+            style={{
+              borderTop: `1px solid ${isDark ? '#434343' : '#e8e8e8'}`,
+              padding: collapsed ? '8px' : '8px 16px',
+              marginTop: 'auto',
+            }}
+          >
+            <Button
+              type="text"
+              danger
+              block
+              icon={<LogoutOutlined />}
+              onClick={handleLogout}
+              style={{
+                height: 48,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: collapsed ? 'center' : 'flex-start',
+                color: isDark ? 'rgba(255, 77, 79, 0.85)' : '#ff4d4f',
+                fontSize: '14px',
+              }}
+            >
+              {!collapsed && <span style={{ marginLeft: 8 }}>Logout</span>}
+            </Button>
+          </div>
+        </div>
       </Sider>
       <Layout>
         <Header
@@ -356,6 +437,105 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
           {children}
         </Content>
       </Layout>
+
+      <Drawer
+        title="Profile"
+        placement="right"
+        onClose={onCloseProfileDrawer}
+        open={profileDrawerOpen}
+        width={380}
+        styles={{
+          body: {
+            background: isDark ? '#141414' : '#fff',
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%',
+            paddingBottom: 24,
+          },
+          header: { background: isDark ? '#1f1f1f' : '#fff', borderBottom: `1px solid ${isDark ? '#434343' : '#f0f0f0'}` },
+        }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', height: '100%', flex: 1 }}>
+          <div>
+            <Text type="secondary" style={{ fontSize: '12px', textTransform: 'uppercase' }}>Name</Text>
+            <div style={{ marginTop: '4px', fontSize: '15px', color: isDark ? '#fff' : '#000' }}>{user?.name || '—'}</div>
+          </div>
+          <div>
+            <Text type="secondary" style={{ fontSize: '12px', textTransform: 'uppercase' }}>Email</Text>
+            <div style={{ marginTop: '4px', fontSize: '15px', color: isDark ? '#fff' : '#000' }}>{user?.email || '—'}</div>
+          </div>
+          <div>
+            <Text type="secondary" style={{ fontSize: '12px', textTransform: 'uppercase' }}>Role</Text>
+            <div style={{ marginTop: '4px', fontSize: '15px', color: isDark ? '#fff' : '#000' }}>
+              {user?.role ? ROLE_LABELS[user.role] || user.role : '—'}
+            </div>
+          </div>
+
+          <Divider style={{ margin: '8px 0' }} />
+
+          <div>
+            <Text strong style={{ marginBottom: '12px', display: 'block', color: isDark ? '#fff' : '#000' }}>Change Password</Text>
+            <Form
+              form={passwordForm}
+              layout="vertical"
+              onFinish={onFinishPassword}
+            >
+              {!isAdminOrSuperadmin && (
+                <Form.Item
+                  name="currentPassword"
+                  label="Current password"
+                  rules={[{ required: true, message: 'Enter your current password' }]}
+                >
+                  <Input.Password placeholder="Current password" />
+                </Form.Item>
+              )}
+              <Form.Item
+                name="newPassword"
+                label="New password"
+                rules={[{ required: true, message: 'Enter new password' }]}
+              >
+                <Input.Password placeholder="New password" />
+              </Form.Item>
+              <Form.Item
+                name="confirmNewPassword"
+                label="Confirm new password"
+                dependencies={['newPassword']}
+                rules={[
+                  { required: true, message: 'Confirm new password' },
+                  ({ getFieldValue }) => ({
+                    validator(_, value) {
+                      if (!value || getFieldValue('newPassword') === value) return Promise.resolve()
+                      return Promise.reject(new Error('Passwords do not match'))
+                    },
+                  }),
+                ]}
+              >
+                <Input.Password placeholder="Confirm new password" />
+              </Form.Item>
+              <Form.Item>
+                <Button type="primary" htmlType="submit" loading={changingPassword} block>
+                  Change Password
+                </Button>
+              </Form.Item>
+            </Form>
+          </div>
+
+          <Divider style={{ margin: '8px 0' }} />
+
+          <div style={{ marginTop: 'auto' }}>
+            <Button
+              type="primary"
+              danger
+              block
+              size="large"
+              icon={<LogoutOutlined />}
+              onClick={handleLogout}
+            >
+              Logout
+            </Button>
+          </div>
+        </div>
+      </Drawer>
     </Layout>
   )
 }

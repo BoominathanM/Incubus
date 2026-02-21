@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken')
+const bcrypt = require('bcryptjs')
 const User = require('../models/User')
 
 const JWT_SECRET = process.env.JWT_SECRET || 'incubus-secret'
@@ -47,4 +48,40 @@ exports.login = async (req, res) => {
 
 exports.logout = (req, res) => {
   res.json({ success: true, message: 'Logged out' })
+}
+
+/** Change password for the authenticated user. Requires currentPassword for verification. */
+exports.changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword, confirmNewPassword } = req.body
+    if (!currentPassword || !newPassword || !confirmNewPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Current password, new password and confirm new password are required',
+      })
+    }
+    if (newPassword !== confirmNewPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password and confirm new password do not match',
+      })
+    }
+
+    const user = await User.findById(req.user.id)
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' })
+    }
+
+    const isMatch = await user.comparePassword(currentPassword)
+    if (!isMatch) {
+      return res.status(401).json({ success: false, message: 'Current password is incorrect' })
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10)
+    await user.save()
+    res.json({ success: true, message: 'Password changed successfully' })
+  } catch (err) {
+    console.error('Change password error:', err)
+    res.status(500).json({ success: false, message: err.message || 'Failed to change password' })
+  }
 }

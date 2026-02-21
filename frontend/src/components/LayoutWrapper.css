@@ -1,5 +1,22 @@
+/* Sidebar: ensure full height so logout stays at bottom */
+.layout-wrapper .sidebar.ant-layout-sider,
+.layout-wrapper .sidebar .ant-layout-sider-children {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.layout-wrapper .sidebar .sidebar-inner {
+  flex: 1;
+  min-height: 0;
+}
+.layout-wrapper .sidebar .sidebar-inner .ant-menu {
+  flex: 1;
+  min-height: 0;
+}
+
 .layout-wrapper .logo {
   height: 64px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;

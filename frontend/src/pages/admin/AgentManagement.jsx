@@ -167,18 +167,26 @@ const AgentManagement = () => {
     }
   }
 
-  const handleDeactivateUser = async (record) => {
-    try {
-      const res = await updateUserStatus({ id: record.id || record._id, status: 'inactive' }).unwrap()
-      if (res.success) {
-        message.success(`${record.name} has been deactivated`)
-        refetchUsers()
-      } else {
-        message.error(res.message || 'Failed to deactivate')
-      }
-    } catch (err) {
-      message.error(err?.data?.message || err?.message || 'Failed to deactivate')
-    }
+  const handleDeactivateUser = (record) => {
+    Modal.confirm({
+      title: 'Deactivate User',
+      content: `Are you sure you want to deactivate ${record.name}? They will not be able to sign in until activated again.`,
+      okText: 'Deactivate',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          const res = await updateUserStatus({ id: record.id || record._id, status: 'inactive' }).unwrap()
+          if (res.success) {
+            message.success(`${record.name} has been deactivated`)
+            refetchUsers()
+          } else {
+            message.error(res.message || 'Failed to deactivate')
+          }
+        } catch (err) {
+          message.error(err?.data?.message || err?.message || 'Failed to deactivate')
+        }
+      },
+    })
   }
 
   const buildPayload = (values, isEdit = false) => {
