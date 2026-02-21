@@ -27,6 +27,13 @@ exports.createUser = async (req, res) => {
     if (!name?.trim() || !email?.trim() || !password) {
       return res.status(400).json({ success: false, message: 'Name, email and password are required' })
     }
+    // Super Admin cannot be created; only one exists (seeded)
+    if (role?.toLowerCase() === 'superadmin') {
+      return res.status(400).json({
+        success: false,
+        message: 'Super Admin role cannot be created. Only one Super Admin exists in the system.',
+      })
+    }
     if (!isAssignableRole(role)) {
       return res.status(400).json({
         success: false,
@@ -87,15 +94,29 @@ exports.updateUser = async (req, res) => {
     }
     if (phone !== undefined) user.phone = phone?.trim() || null
     if (role !== undefined) {
-      if (!isAssignableRole(role)) {
-        return res.status(400).json({
-          success: false,
-          message: `Invalid role. Allowed: ${ASSIGNABLE_ROLES.join(', ')}`,
-        })
+      // Super Admin role cannot be assigned; only the existing Super Admin keeps that role
+      if (role.toLowerCase() === 'superadmin') {
+        if (user.role !== 'superadmin') {
+          return res.status(400).json({
+            success: false,
+            message: 'Super Admin role cannot be assigned. Only one Super Admin exists in the system.',
+          })
+        }
+        // else: user is already superadmin, keep role unchanged
+      } else {
+        if (!isAssignableRole(role)) {
+          return res.status(400).json({
+            success: false,
+            message: `Invalid role. Allowed: ${ASSIGNABLE_ROLES.join(', ')}`,
+          })
+        }
+        user.role = role.toLowerCase()
       }
-      user.role = role.toLowerCase()
     }
-    if (status !== undefined) user.status = status === 'inactive' ? 'inactive' : 'active'
+    // Super Admin status cannot be changed
+    if (status !== undefined && user.role !== 'superadmin') {
+      user.status = status === 'inactive' ? 'inactive' : 'active'
+    }
 
     await user.save()
     res.json({ success: true, user: toUserResponse(user) })
@@ -121,6 +142,9 @@ exports.updateUserStatus = async (req, res) => {
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' })
     }
+    if (user.role === 'superadmin') {
+      return res.status(400).json({ success: false, message: 'Super Admin status cannot be changed' })
+    }
     user.status = status
     await user.save()
     res.json({ success: true, user: toUserResponse(user) })
@@ -135,6 +159,14 @@ exports.deleteUser = async (req, res) => {
     const { id } = req.params
     if (id === req.user.id) {
       return res.status(400).json({ success: false, message: 'You cannot delete your own account' })
+    }
+
+    const userToDelete = await User.findById(id)
+    if (!userToDelete) {
+      return res.status(404).json({ success: false, message: 'User not found' })
+    }
+    if (userToDelete.role === 'superadmin') {
+      return res.status(400).json({ success: false, message: 'Super Admin cannot be deleted' })
     }
 
     const user = await User.findByIdAndDelete(id)

@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { Table, Tag, Button, Space, Input, Modal, Form, Select, message, Typography } from 'antd'
 import Breadcrumbs from '../../components/Breadcrumbs'
 import PhoneInput from '../../components/PhoneInput'
+import { useAuth } from '../../context/AuthContext'
 import {
   useGetUsersQuery,
   useCreateUserMutation,
@@ -24,6 +25,7 @@ const statusDisplay = (s) => (s === 'active' ? 'Active' : 'Inactive')
 const ROLE_LABELS = { admin: 'Admin', executive: 'Executive Agent', billing: 'Billing Agent', warehouse: 'Warehouse & Delivery Agent', superadmin: 'Super Admin' }
 
 const AgentManagement = () => {
+  const { user: currentUser } = useAuth()
   const [userModalVisible, setUserModalVisible] = useState(false)
   const [selectedUser, setSelectedUser] = useState(null)
   const [userForm] = Form.useForm()
@@ -75,50 +77,51 @@ const AgentManagement = () => {
     {
       title: 'Actions',
       key: 'actions',
-      render: (_, record) => (
-        <Space wrap>
-          <Button
-            icon={<EditOutlined />}
-            onClick={() => {
-              setSelectedUser(record)
-              const mobileStr = record.phone || record.mobile || ''
-              const match = mobileStr.match(/^(\+\d+)\s*(.*)$/)
-              const values = {
-                ...record,
-                status: record.status === 'active' ? 'active' : 'inactive',
-                mobileCountryCode: record.mobileCountryCode ?? match?.[1] ?? '+91',
-                mobileNumber: record.mobileNumber ?? match?.[2] ?? mobileStr.replace(/^\+\d+\s*/, ''),
-              }
-              userForm.setFieldsValue(values)
-              setUserModalVisible(true)
-            }}
-          >
-            Edit
-          </Button>
-          {record.status === 'active' ? (
+      render: (_, record) => {
+        const isSuperAdminUser = record.role === 'superadmin'
+        const canManageSuperAdmin = currentUser?.role === 'superadmin'
+        const canEdit = canManageSuperAdmin || !isSuperAdminUser
+        const showDeactivateActivateDelete = !isSuperAdminUser
+        return (
+          <Space wrap>
             <Button
-              danger
-              onClick={() => handleDeactivateUser(record)}
+              icon={<EditOutlined />}
+              disabled={!canEdit}
+              onClick={() => {
+                setSelectedUser(record)
+                const mobileStr = record.phone || record.mobile || ''
+                const match = mobileStr.match(/^(\+\d+)\s*(.*)$/)
+                const values = {
+                  ...record,
+                  status: record.status === 'active' ? 'active' : 'inactive',
+                  mobileCountryCode: record.mobileCountryCode ?? match?.[1] ?? '+91',
+                  mobileNumber: record.mobileNumber ?? match?.[2] ?? mobileStr.replace(/^\+\d+\s*/, ''),
+                }
+                userForm.setFieldsValue(values)
+                setUserModalVisible(true)
+              }}
             >
-              Deactivate
+              Edit
             </Button>
-          ) : (
-            <Button
-              type="primary"
-              onClick={() => handleActivateUser(record)}
-            >
-              Activate
-            </Button>
-          )}
-          <Button
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => handleDeleteUser(record)}
-          >
-            Delete
-          </Button>
-        </Space>
-      ),
+            {showDeactivateActivateDelete && (
+              record.status === 'active' ? (
+                <Button danger disabled={!canEdit} onClick={() => handleDeactivateUser(record)}>
+                  Deactivate
+                </Button>
+              ) : (
+                <Button type="primary" disabled={!canEdit} onClick={() => handleActivateUser(record)}>
+                  Activate
+                </Button>
+              )
+            )}
+            {showDeactivateActivateDelete && (
+              <Button danger icon={<DeleteOutlined />} disabled={!canEdit} onClick={() => handleDeleteUser(record)}>
+                Delete
+              </Button>
+            )}
+          </Space>
+        )
+      },
     },
   ]
 
@@ -302,13 +305,16 @@ const AgentManagement = () => {
           </Form.Item>
           <PhoneInput countryCodeName="mobileCountryCode" numberName="mobileNumber" label="Mobile Number" required />
           <Form.Item name="role" label="Role" rules={[{ required: true }]}>
-            <Select>
-              <Option value="superadmin">Super Admin</Option>
-              <Option value="admin">Admin</Option>
-              <Option value="executive">Executive Agent</Option>
-              <Option value="billing">Billing Agent</Option>
-              <Option value="warehouse">Warehouse & Delivery Agent</Option>
-            </Select>
+            {selectedUser?.role === 'superadmin' ? (
+              <Input disabled value="Super Admin" />
+            ) : (
+              <Select>
+                <Option value="admin">Admin</Option>
+                <Option value="executive">Executive Agent</Option>
+                <Option value="billing">Billing Agent</Option>
+                <Option value="warehouse">Warehouse & Delivery Agent</Option>
+              </Select>
+            )}
           </Form.Item>
           {!selectedUser && (
             <Form.Item name="password" label="Password" rules={[{ required: true, message: 'Password is required' }]}>
@@ -341,10 +347,14 @@ const AgentManagement = () => {
             </>
           )}
           <Form.Item name="status" label="Status">
-            <Select>
-              <Option value="active">Active</Option>
-              <Option value="inactive">Inactive</Option>
-            </Select>
+            {selectedUser?.role === 'superadmin' ? (
+              <Input disabled value={selectedUser?.status === 'inactive' ? 'Inactive' : 'Active'} />
+            ) : (
+              <Select>
+                <Option value="active">Active</Option>
+                <Option value="inactive">Inactive</Option>
+              </Select>
+            )}
           </Form.Item>
         </Form>
       </Modal>
