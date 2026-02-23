@@ -75,14 +75,20 @@ const WhatsAppIntegration = () => {
   const [variableMappings, setVariableMappings] = useState([])
   const [editingMappingId, setEditingMappingId] = useState(null)
   const [editConfigMode, setEditConfigMode] = useState(false)
+  const [templatePage, setTemplatePage] = useState(1)
+  const [templatePageSize, setTemplatePageSize] = useState(10)
 
   const { data: configRes, isLoading: configLoading } = useGetAskevaConfigQuery()
   const [saveConfig, { isLoading: saveConfigLoading }] = useSaveAskevaConfigMutation()
   const [testConnection, { isLoading: testLoading }] = useTestAskevaConnectionMutation()
   const [disconnect, { isLoading: disconnectLoading }] = useDisconnectAskevaMutation()
   const [syncTemplates, { isLoading: syncLoading }] = useSyncAskevaTemplatesMutation()
+  const templatesQueryParams =
+    activeTab === 'templates'
+      ? { page: templatePage, limit: templatePageSize }
+      : { limit: 10000 }
   const { data: templatesRes, isLoading: templatesLoading } = useGetAskevaTemplatesQuery(
-    { limit: 1000 },
+    templatesQueryParams,
     { skip: activeTab !== 'templates' && activeTab !== 'eventMapping' }
   )
   const { data: mappingsRes, isLoading: mappingsLoading } = useGetEventTemplateMappingsQuery(undefined, {
@@ -97,6 +103,8 @@ const WhatsAppIntegration = () => {
   const connectionError = config?.connectionError || null
   const fieldsDisabled = isConfigured && !editConfigMode
   const templates = templatesRes?.data?.templates ?? []
+  const templatesPagination = templatesRes?.data?.pagination ?? {}
+  const templatesTotal = templatesPagination.total ?? templates.length
   const eventMappings = (mappingsRes?.data?.mappings ?? []).map((m) => ({
     ...m,
     key: m._id,
@@ -295,6 +303,7 @@ const WhatsAppIntegration = () => {
   const handleSyncTemplates = async () => {
     try {
       const res = await syncTemplates().unwrap()
+      setTemplatePage(1)
       message.success(res?.data?.message || 'Templates synced successfully')
     } catch (e) {
       message.error(e?.data?.error?.message || e?.error?.message || 'Failed to sync templates')
@@ -564,14 +573,25 @@ const WhatsAppIntegration = () => {
                 <Text style={{ color: '#15B9A4' }}>Last synced: {lastSyncedAt}</Text>
                 <br />
                 <Text style={{ color: '#52c41a' }}>
-                  {templates.length} template(s) synced
+                  {templatesTotal} template(s) synced
                 </Text>
               </div>
             )}
             <Table
               columns={templateColumns}
               dataSource={templates.map((t) => ({ ...t, key: t._id }))}
-              pagination={{ pageSize: 10, showTotal: (total) => `Total ${total} templates` }}
+              pagination={{
+                current: templatePage,
+                pageSize: templatePageSize,
+                total: templatesTotal,
+                showSizeChanger: true,
+                pageSizeOptions: ['10', '20', '50', '100'],
+                showTotal: (total) => `Total ${total} templates`,
+                onChange: (page, pageSize) => {
+                  setTemplatePage(page)
+                  setTemplatePageSize(pageSize || 10)
+                },
+              }}
               locale={{ emptyText: isConfigured ? 'No templates yet. Click Sync Templates.' : 'Configure WhatsApp first.' }}
             />
           </Card>

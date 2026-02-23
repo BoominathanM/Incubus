@@ -1,17 +1,38 @@
-/* Sidebar: ensure full height so logout stays at bottom */
-.layout-wrapper .sidebar.ant-layout-sider,
-.layout-wrapper .sidebar .ant-layout-sider-children {
-  height: 100%;
+/* Layout: full viewport height so sidebar and content fill the screen */
+.layout-wrapper.ant-layout {
   display: flex;
-  flex-direction: column;
+  flex-wrap: nowrap;
+  height: 100%;
+}
+.layout-wrapper .sidebar.ant-layout-sider {
+  flex-shrink: 0;
+  height: 100%;
+  min-height: 100%;
+  overflow: visible;
+}
+.layout-wrapper .sidebar .ant-layout-sider-children {
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden;
 }
 .layout-wrapper .sidebar .sidebar-inner {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: 100%;
 }
 .layout-wrapper .sidebar .sidebar-inner .ant-menu {
-  flex: 1;
-  min-height: 0;
+  flex: 1 1 auto;
+  min-height: 120px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.layout-wrapper .sidebar .sidebar-inner .ant-menu-inner {
+  padding: 8px 0;
 }
 
 .layout-wrapper .logo {

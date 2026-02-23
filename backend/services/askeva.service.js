@@ -82,8 +82,35 @@ async function testConnection(companyId, { apiKey, backendUrl }) {
 }
 
 /**
+ * Extract template array from API response (various shapes).
+ */
+function extractTemplatesFromResponse(data) {
+  if (!data) return []
+  if (Array.isArray(data)) return data
+  if (Array.isArray(data.data)) return data.data
+  if (Array.isArray(data.templates)) return data.templates
+  if (data.waba_templates && Array.isArray(data.waba_templates)) return data.waba_templates
+  return []
+}
+
+/**
+ * Fetch one page of templates from a URL (with optional query params).
+ */
+async function fetchTemplatesPage(url, extraParams = {}) {
+  const u = new URL(url)
+  Object.entries(extraParams).forEach(([k, v]) => {
+    if (v !== undefined && v !== '') u.searchParams.set(k, String(v))
+  })
+  const res = await fetch(u.toString(), { method: 'GET', headers: { Accept: 'application/json' } })
+  if (!res.ok) return { ok: false, data: null }
+  const data = await res.json()
+  return { ok: true, data }
+}
+
+/**
  * Sync templates from Askeva into AskevaTemplate collection.
  * Tries GET /v1/templates and GET /v1/message/templates.
+ * Uses pagination to fetch ALL templates (page, limit, offset, or paging.next).
  */
 async function syncTemplates(companyId) {
   const config = await getConfigForCompany(companyId)
@@ -93,31 +120,79 @@ async function syncTemplates(companyId) {
 
   const base = normalizeBaseUrl(config.backendUrl)
   const token = config.apiKey
-  const urlsToTry = [
+  const baseUrls = [
     `${base}/v1/templates?token=${encodeURIComponent(token)}`,
     `${base}/v1/message/templates?token=${encodeURIComponent(token)}`,
   ]
 
-  let templates = []
-  for (const url of urlsToTry) {
+  let allTemplates = []
+
+  for (const url of baseUrls) {
     try {
-      const res = await fetch(url, { method: 'GET', headers: { Accept: 'application/json' } })
-      if (!res.ok) continue
-      const data = await res.json()
-      if (Array.isArray(data)) {
-        templates = data
-        break
-      }
-      if (data && Array.isArray(data.data)) {
-        templates = data.data
-        break
-      }
-      if (data && Array.isArray(data.templates)) {
-        templates = data.templates
-        break
-      }
-      if (data && data.waba_templates && Array.isArray(data.waba_templates)) {
-        templates = data.waba_templates
+      // First request: try with a large limit to get as many as the API allows
+      const first = await fetchTemplatesPage(url, { limit: 500, per_page: 500, page: 1 })
+      if (!first.ok) continue
+
+      const data = first.data
+      const firstBatch = extractTemplatesFromResponse(data)
+      if (firstBatch.length > 0) {
+        allTemplates = [...firstBatch]
+
+        // Pagination: check for total / next page
+        const total = data.total ?? data.total_count ?? data.totalCount ?? (data.pagination && data.pagination.total)
+        const totalPages = data.total_pages ?? data.totalPages ?? (total != null && data.per_page ? Math.ceil(total / data.per_page) : null) ?? (total != null && data.limit ? Math.ceil(total / data.limit) : null)
+        const perPage = data.per_page ?? data.limit ?? firstBatch.length
+        const hasNextUrl = data.paging?.next ?? data.next_page_url ?? data.nextPageUrl
+
+        if (hasNextUrl) {
+          let nextUrl = hasNextUrl
+          while (nextUrl) {
+            try {
+              const res = await fetch(nextUrl, { method: 'GET', headers: { Accept: 'application/json' } })
+              if (!res.ok) break
+              const nextData = await res.json()
+              const nextBatch = extractTemplatesFromResponse(nextData)
+              if (nextBatch.length === 0) break
+              allTemplates = allTemplates.concat(nextBatch)
+              nextUrl = nextData.paging?.next ?? nextData.next_page_url ?? nextData.nextPageUrl ?? null
+            } catch {
+              break
+            }
+          }
+        } else if (totalPages > 1) {
+          for (let page = 2; page <= totalPages; page++) {
+            const next = await fetchTemplatesPage(url, { page, limit: perPage, per_page: perPage })
+            if (!next.ok) break
+            const nextBatch = extractTemplatesFromResponse(next.data)
+            if (nextBatch.length === 0) break
+            allTemplates = allTemplates.concat(nextBatch)
+          }
+        } else {
+          // No total; try page-based until empty/smaller page (API often returns 25 per page)
+          const pageSize = perPage || firstBatch.length || 25
+          let page = 2
+          let batch
+          do {
+            const next = await fetchTemplatesPage(url, { page, limit: pageSize, per_page: pageSize })
+            if (!next.ok) break
+            batch = extractTemplatesFromResponse(next.data)
+            if (batch.length > 0) allTemplates = allTemplates.concat(batch)
+            page++
+          } while (batch && batch.length >= pageSize && page <= 50)
+          // If page param didn't add more (API may use offset), try offset-based pagination
+          if (allTemplates.length <= firstBatch.length) {
+            let offset = pageSize
+            for (let i = 0; i < 50; i++) {
+              const next = await fetchTemplatesPage(url, { offset, limit: pageSize, per_page: pageSize })
+              if (!next.ok) break
+              const offsetBatch = extractTemplatesFromResponse(next.data)
+              if (offsetBatch.length === 0) break
+              allTemplates = allTemplates.concat(offsetBatch)
+              offset += pageSize
+              if (offsetBatch.length < pageSize) break
+            }
+          }
+        }
         break
       }
     } catch {
@@ -125,7 +200,7 @@ async function syncTemplates(companyId) {
     }
   }
 
-  if (templates.length === 0) {
+  if (allTemplates.length === 0) {
     await AskevaConfig.updateOne(
       { companyId },
       { lastSyncedAt: new Date() }
@@ -133,9 +208,18 @@ async function syncTemplates(companyId) {
     return { success: true, synced: 0, message: 'No templates returned from API (or endpoint not available).' }
   }
 
+  // Deduplicate by template id (in case API returns same item on multiple pages)
+  const seen = new Set()
+  allTemplates = allTemplates.filter((t) => {
+    const id = t.id || t.template_id || t.name || t.template_name || t.templateName
+    if (seen.has(id)) return false
+    seen.add(id)
+    return true
+  })
+
   const now = new Date()
   let synced = 0
-  for (const t of templates) {
+  for (const t of allTemplates) {
     const name = t.name || t.template_name || t.templateName || t.id || 'unknown'
     const id = t.id || t.template_id || name
     const language = (t.language || t.lang || 'EN').toUpperCase().slice(0, 10)

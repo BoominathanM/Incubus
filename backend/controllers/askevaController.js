@@ -277,7 +277,7 @@ exports.getTemplates = async (req, res) => {
 
     const [templates, total] = await Promise.all([
       AskevaTemplate.find(query)
-        .sort({ lastSyncedAt: -1 })
+        .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),

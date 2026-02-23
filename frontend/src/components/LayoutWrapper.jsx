@@ -307,16 +307,20 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
   )
 
   return (
-    <Layout className="layout-wrapper" style={{ minHeight: '100vh' }}>
+    <Layout className="layout-wrapper" style={{ height: '100vh', minHeight: '100vh', display: 'flex' }}>
       <Sider
         trigger={null}
         collapsible
         collapsed={collapsed}
         width={250}
+        collapsedWidth={80}
         className="sidebar sidebar-with-logout"
         style={{
           background: isDark ? '#141414' : '#fff',
           borderRight: `1px solid ${isDark ? '#434343' : '#e8e8e8'}`,
+          height: '100%',
+          minHeight: '100vh',
+          overflow: 'hidden',
         }}
       >
         <div
@@ -378,7 +382,7 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
           </div>
         </div>
       </Sider>
-      <Layout>
+      <Layout style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <Header
           className="header"
           style={{
@@ -395,6 +399,7 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
             icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
             onClick={() => setCollapsed(!collapsed)}
             style={{ fontSize: '16px', width: 64, height: 64 }}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           />
           <Space>
             <Dropdown 
@@ -427,11 +432,13 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
         <Content
           className="content"
           style={{
+            flex: 1,
             margin: '24px',
             padding: '24px',
             background: isDark ? '#141414' : '#f0f2f5',
             borderRadius: '8px',
-            minHeight: 'calc(100vh - 112px)',
+            minHeight: 0,
+            overflow: 'auto',
           }}
         >
           {children}

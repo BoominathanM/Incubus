@@ -43,7 +43,7 @@ export const askevaApi = baseApi.injectEndpoints({
     getAskevaTemplates: build.query({
       query: (params) => ({
         url: '/api/askeva/templates',
-        params: params || { limit: 1000 },
+        params: params || { page: 1, limit: 10 },
       }),
       providesTags: (result) =>
         result?.data?.templates
