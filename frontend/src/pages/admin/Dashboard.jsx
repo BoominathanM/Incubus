@@ -8,12 +8,11 @@ import {
   ClockCircleOutlined,
   ShoppingCartOutlined,
   DollarOutlined,
-  FileTextOutlined,
-  TruckOutlined,
   CarOutlined,
 } from '@ant-design/icons'
 import Breadcrumbs from '../../components/Breadcrumbs'
 import dayjs from 'dayjs'
+import { useGetRetailerStatsQuery } from '../../store/api/retailerApi'
 
 const { RangePicker } = DatePicker
 const { Title } = Typography
@@ -21,18 +20,31 @@ const { Title } = Typography
 const AdminDashboard = () => {
   const navigate = useNavigate()
   const [dateRange, setDateRange] = useState([dayjs().subtract(7, 'day'), dayjs()])
+  const { data: statsData } = useGetRetailerStatsQuery()
+  const s = statsData?.stats ?? {}
 
-  // Derive mock values from date range (UI only - days in range used to vary numbers)
   const rangeDays = dateRange?.[0] && dateRange?.[1] ? dateRange[1].diff(dateRange[0], 'day') + 1 : 7
   const rangeLabel = dateRange?.[0] && dateRange?.[1]
     ? `${dateRange[0].format('DD/MM/YYYY')} - ${dateRange[1].format('DD/MM/YYYY')}`
     : 'Select range'
 
   const vendorStats = [
-    { title: 'Active Retailers', value: Math.max(200, 245 - rangeDays * 2), icon: <UserOutlined />, color: '#15B9A4' },
-    { title: 'Pending Approvals', value: Math.min(20, 12 + Math.floor(rangeDays / 2)), icon: <ClockCircleOutlined />, color: '#faad14' },
-    { title: 'Approved Today', value: 8 + (rangeDays > 7 ? 2 : 0), icon: <CheckCircleOutlined />, color: '#52c41a' },
-    { title: 'Rejected Today', value: Math.max(0, 2 - Math.floor(rangeDays / 10)), icon: <CloseCircleOutlined />, color: '#ff4d4f' },
+    { title: 'Total Retailers', value: s.totalRetailers ?? '—', icon: <UserOutlined />, color: '#15B9A4' },
+    { title: 'Pending Approvals', value: s.pendingApprovals ?? '—', icon: <ClockCircleOutlined />, color: '#faad14' },
+    { title: 'Approved Today (by approval date)', value: s.approvedToday ?? '—', icon: <CheckCircleOutlined />, color: '#52c41a' },
+    { title: 'Rejected Today', value: s.rejectedToday ?? '—', icon: <CloseCircleOutlined />, color: '#ff4d4f' },
+  ]
+
+  const approvedTodayList = s.approvedTodayList ?? []
+  const approvedTodayColumns = [
+    { title: 'Business Name', dataIndex: 'businessName', key: 'businessName' },
+    { title: 'Store Name', dataIndex: 'storeName', key: 'storeName' },
+    {
+      title: 'Approved At',
+      dataIndex: 'approvedAt',
+      key: 'approvedAt',
+      render: (v) => (v ? dayjs(v).format('DD/MM/YYYY HH:mm') : '—'),
+    },
   ]
 
   const orderStats = [
@@ -79,7 +91,7 @@ const AdminDashboard = () => {
         </Space>
       </Space>
 
-      <Title level={4} style={{ marginBottom: 16 }}>Vendor Overview ({rangeLabel})</Title>
+      <Title level={4} style={{ marginBottom: 16 }}>Retailer Overview</Title>
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         {vendorStats.map((stat, index) => (
           <Col xs={24} sm={12} lg={6} key={index}>
@@ -94,6 +106,19 @@ const AdminDashboard = () => {
           </Col>
         ))}
       </Row>
+
+      <Card title="Approved today (by approval date)" style={{ marginBottom: 24 }}>
+        {approvedTodayList.length > 0 ? (
+          <Table
+            columns={approvedTodayColumns}
+            dataSource={approvedTodayList.map((r) => ({ ...r, key: r._id }))}
+            pagination={false}
+            size="middle"
+          />
+        ) : (
+          <Typography.Text type="secondary">No retailers approved today.</Typography.Text>
+        )}
+      </Card>
 
       <Title level={4} style={{ marginBottom: 16 }}>Order & Revenue Summary ({rangeLabel})</Title>
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>

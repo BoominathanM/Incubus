@@ -1,25 +1,52 @@
-import React, { useState } from 'react'
-import { Tabs, Table, Tag, Button, Space, Input, Modal, Form, Select, message, Typography, Upload, Row, Col, DatePicker } from 'antd'
+import React, { useState, useCallback } from 'react'
+import { Tabs, Table, Tag, Button, Space, Input, Modal, Form, Select, message, Typography, Upload, Row, Col, DatePicker, Alert } from 'antd'
 import {
   SearchOutlined,
   PlusOutlined,
   EditOutlined,
+  EyeOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
-  UserOutlined,
   DeleteOutlined,
   StopOutlined,
   UploadOutlined,
   ImportOutlined,
   ExportOutlined,
+  DownloadOutlined,
 } from '@ant-design/icons'
 import Breadcrumbs from '../../components/Breadcrumbs'
 import PhoneInput from '../../components/PhoneInput'
 import dayjs from 'dayjs'
+import {
+  useGetRetailersQuery,
+  useCreateRetailerMutation,
+  useUpdateRetailerMutation,
+  useDeleteRetailerMutation,
+  useApproveRetailerMutation,
+  useRejectRetailerMutation,
+  useSetRetailerStatusMutation,
+  useUploadRetailerFileMutation,
+  useLazyExportRetailersQuery,
+  useLazyDownloadImportSampleQuery,
+  useImportRetailersMutation,
+  downloadExportBlob,
+  downloadSampleBlob,
+} from '../../store/api/retailerApi'
+import { getUploadErrorMessage } from '../../utils/uploadErrors'
 
 const { Title } = Typography
 const { Option } = Select
 const { RangePicker } = DatePicker
+const { Link } = Typography
+
+const ALLOWED_UPLOAD_ACCEPT = '.pdf,.jpg,.jpeg,.png'
+const STATUS_DISPLAY = {
+  pending_approval: 'Pending',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  active: 'Active',
+  disabled: 'Disabled',
+}
 
 const RetailerBoard = () => {
   const [activeTab, setActiveTab] = useState('requests')
@@ -31,42 +58,55 @@ const RetailerBoard = () => {
   const [form] = Form.useForm()
   const [createForm] = Form.useForm()
   const [importModalVisible, setImportModalVisible] = useState(false)
+  const [importFile, setImportFile] = useState(null)
+  const [importing, setImporting] = useState(false)
+  const [viewModalVisible, setViewModalVisible] = useState(false)
+  const [viewRetailer, setViewRetailer] = useState(null)
+  const [rejectModalVisible, setRejectModalVisible] = useState(false)
+  const [retailerToReject, setRetailerToReject] = useState(null)
+  const [rejectReasonForm] = Form.useForm()
+
+  const gstUrlCreate = Form.useWatch('gstAttachmentUrl', createForm)
+  const panUrlCreate = Form.useWatch('panAttachmentUrl', createForm)
+  const gstUrlEdit = Form.useWatch('gstAttachmentUrl', form)
+  const panUrlEdit = Form.useWatch('panAttachmentUrl', form)
+
+  const listParams = {
+    status: activeTab === 'requests' ? 'requests' : activeTab === 'rejected' ? 'rejected' : 'approved',
+    search: searchText.trim() || undefined,
+    dateFrom: dateRange?.[0]?.startOf('day').toISOString?.(),
+    dateTo: dateRange?.[1]?.endOf('day').toISOString?.(),
+  }
+  const { data: listData, isLoading: listLoading } = useGetRetailersQuery(listParams)
+  const retailers = listData?.retailers ?? []
+  const [createRetailer, { isLoading: creating }] = useCreateRetailerMutation()
+  const [updateRetailer, { isLoading: updating }] = useUpdateRetailerMutation()
+  const [deleteRetailer] = useDeleteRetailerMutation()
+  const [approveRetailer] = useApproveRetailerMutation()
+  const [rejectRetailer] = useRejectRetailerMutation()
+  const [setRetailerStatus] = useSetRetailerStatusMutation()
+  const [uploadFile, { isLoading: uploading }] = useUploadRetailerFileMutation()
+  const [triggerExport, { isLoading: exporting }] = useLazyExportRetailersQuery()
+  const [triggerSample, { isLoading: sampleLoading }] = useLazyDownloadImportSampleQuery()
+  const [importRetailers, { isLoading: importMutationLoading }] = useImportRetailersMutation()
 
   const requestColumns = [
-    {
-      title: 'Business Name',
-      dataIndex: 'businessName',
-      key: 'businessName',
-    },
-    {
-      title: 'Contact Person',
-      dataIndex: 'contactPerson',
-      key: 'contactPerson',
-    },
+    { title: 'Business Name', dataIndex: 'businessName', key: 'businessName' },
+    { title: 'Store Name', dataIndex: 'storeName', key: 'storeName', render: (v) => v || '—' },
+    { title: 'Contact Person', dataIndex: 'contactPerson', key: 'contactPerson' },
     {
       title: 'WhatsApp Number',
       key: 'whatsapp',
-      render: (_, r) => {
-        if (r.whatsappCountryCode && r.whatsappNumber) {
-          return r.whatsappCountryCode + ' ' + r.whatsappNumber
-        }
-        return r.whatsapp || '-'
-      },
+      render: (_, r) =>
+        r.whatsappCountryCode && r.whatsappNumber ? `${r.whatsappCountryCode} ${r.whatsappNumber}` : '—',
     },
-    {
-      title: 'GST Number',
-      dataIndex: 'gst',
-      key: 'gst',
-    },
+    { title: 'GST Number', dataIndex: 'gst', key: 'gst' },
     {
       title: 'Address',
       key: 'address',
       render: (_, r) => {
-        if (r.city) {
-          const parts = [r.street1, r.city, r.district, r.state, r.pincode].filter(Boolean)
-          return parts.join(', ') || '-'
-        }
-        return r.location || '-'
+        const parts = [r.street1, r.city, r.district, r.state, r.pincode].filter(Boolean)
+        return parts.length ? parts.join(', ') : '—'
       },
     },
     {
@@ -74,29 +114,29 @@ const RetailerBoard = () => {
       dataIndex: 'status',
       key: 'status',
       render: (status) => (
-        <Tag color={status === 'Approved' ? 'green' : status === 'Rejected' ? 'red' : 'orange'}>
-          {status}
+        <Tag color={status === 'approved' ? 'green' : status === 'rejected' ? 'red' : 'orange'} style={{ margin: 0, padding: '2px 10px', lineHeight: '22px' }}>
+          {STATUS_DISPLAY[status] ?? status}
         </Tag>
       ),
     },
-    {
-      title: 'Created By',
-      dataIndex: 'createdBy',
-      key: 'createdBy',
-      render: (by) => <Tag>{by}</Tag>,
-    },
-    {
-      title: 'Created At',
-      dataIndex: 'createdAt',
-      key: 'createdAt',
-      render: (t) => t || '-',
-    },
+    { title: 'Created By', dataIndex: 'createdBy', key: 'createdBy', render: (by) => <Tag style={{ margin: 0, padding: '2px 10px' }}>{by}</Tag> },
+    { title: 'Created At', dataIndex: 'createdAt', key: 'createdAt', render: (t) => t || '—' },
     {
       title: 'Actions',
       key: 'actions',
       render: (_, record) => (
         <Space>
-          {record.status === 'Pending' && (
+          <Button
+            type="link"
+            icon={<EyeOutlined />}
+            onClick={() => {
+              setViewRetailer(record)
+              setViewModalVisible(true)
+            }}
+          >
+            View
+          </Button>
+          {record.status === 'pending_approval' && (
             <>
               <Button
                 type="primary"
@@ -108,7 +148,11 @@ const RetailerBoard = () => {
               <Button
                 danger
                 icon={<CloseCircleOutlined />}
-                onClick={() => handleReject(record)}
+                onClick={() => {
+                  setRetailerToReject(record)
+                  rejectReasonForm.resetFields()
+                  setRejectModalVisible(true)
+                }}
               >
                 Reject
               </Button>
@@ -118,7 +162,7 @@ const RetailerBoard = () => {
             icon={<EditOutlined />}
             onClick={() => {
               setSelectedRetailer(record)
-              form.setFieldsValue(record)
+              form.setFieldsValue(retailerToForm(record))
               setEditModalVisible(true)
             }}
           >
@@ -130,52 +174,52 @@ const RetailerBoard = () => {
   ]
 
   const approvedColumns = [
-    ...requestColumns.slice(0, -1),
+    ...requestColumns.slice(0, -2),
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
       render: (status) => (
-        <Tag color={status === 'Active' ? 'green' : 'red'}>{status}</Tag>
+        <Tag color={status === 'active' ? 'green' : 'red'} style={{ margin: 0, padding: '2px 10px', lineHeight: '22px' }}>{STATUS_DISPLAY[status] ?? status}</Tag>
       ),
     },
+    // { title: 'Created By', dataIndex: 'createdBy', key: 'createdBy', render: (by) => <Tag style={{ margin: 0, padding: '2px 10px' }}>{by}</Tag> },
     {
       title: 'Actions',
       key: 'actions',
       render: (_, record) => (
         <Space>
           <Button
+            type="link"
+            icon={<EyeOutlined />}
+            onClick={() => {
+              setViewRetailer(record)
+              setViewModalVisible(true)
+            }}
+          >
+            View
+          </Button>
+          <Button
             type="primary"
             icon={<EditOutlined />}
             onClick={() => {
               setSelectedRetailer(record)
-              form.setFieldsValue(record)
+              form.setFieldsValue(retailerToForm(record))
               setEditModalVisible(true)
             }}
           >
             Edit
           </Button>
-          {record.status === 'Active' ? (
-            <Button
-              danger
-              icon={<StopOutlined />}
-              onClick={() => handleDisable(record)}
-            >
+          {record.status === 'active' ? (
+            <Button danger icon={<StopOutlined />} onClick={() => handleDisable(record)}>
               Disable
             </Button>
           ) : (
-            <Button
-              type="primary"
-              onClick={() => handleActivate(record)}
-            >
+            <Button type="primary" onClick={() => handleActivate(record)}>
               Activate
             </Button>
           )}
-          <Button
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => handleRemove(record)}
-          >
+          <Button danger icon={<DeleteOutlined />} onClick={() => handleRemove(record)}>
             Remove
           </Button>
         </Space>
@@ -183,138 +227,246 @@ const RetailerBoard = () => {
     },
   ]
 
-  const mockRequests = [
+  const rejectedColumns = [
+    ...requestColumns.slice(0, -2),
     {
-      key: '1',
-      businessName: 'ABC Store',
-      contactPerson: 'John Doe',
-      whatsappCountryCode: '+91',
-      whatsappNumber: '9876543210',
-      email: 'abc@store.com',
-      gst: 'GST123456',
-      pan: 'PAN123456',
-      street1: '123 Main Road',
-      street2: 'Near Park',
-      city: 'Mumbai',
-      district: 'Mumbai',
-      state: 'Maharashtra',
-      pincode: '400001',
-      location: 'Mumbai',
-      branches: 2,
-      altContactCountryCode: '+91',
-      altContactNumber: '9876543211',
-      status: 'Pending',
-      createdBy: 'WhatsApp',
-      createdAt: '2024-01-15 10:00 AM',
+      title: 'Reject Reason',
+      dataIndex: 'rejectedReason',
+      key: 'rejectedReason',
+      ellipsis: true,
+      render: (v) => v || '—',
     },
+    { title: 'Rejected At', dataIndex: 'rejectedAt', key: 'rejectedAt', width: 160, render: (t) => (t ? new Date(t).toLocaleString() : '—') },
     {
-      key: '2',
-      businessName: 'XYZ Mart',
-      contactPerson: 'Jane Smith',
-      whatsappCountryCode: '+91',
-      whatsappNumber: '9876543211',
-      email: 'xyz@mart.com',
-      gst: 'GST123457',
-      pan: 'PAN123457',
-      street1: '45 Sector 2',
-      street2: '',
-      city: 'Delhi',
-      district: 'Central Delhi',
-      state: 'Delhi',
-      pincode: '110001',
-      location: 'Delhi',
-      branches: 1,
-      altContactCountryCode: '+91',
-      altContactNumber: '9876543212',
-      status: 'Pending',
-      createdBy: 'Agent',
-      createdAt: '2024-01-14 02:30 PM',
+      title: 'Actions',
+      key: 'actions',
+      width: 140,
+      render: (_, record) => (
+        <Space size="small" wrap>
+          <Button
+            type="link"
+            size="small"
+            icon={<EyeOutlined />}
+            onClick={() => {
+              setViewRetailer(record)
+              setViewModalVisible(true)
+            }}
+          >
+            View
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => {
+              setSelectedRetailer(record)
+              form.setFieldsValue(retailerToForm(record))
+              setEditModalVisible(true)
+            }}
+          >
+            Edit
+          </Button>
+        </Space>
+      ),
     },
   ]
 
-  const mockApproved = [
-    {
-      key: '3',
-      businessName: 'Super Shop',
-      contactPerson: 'Bob Wilson',
-      whatsappCountryCode: '+91',
-      whatsappNumber: '9876543212',
-      email: 'super@shop.com',
-      gst: 'GST123458',
-      pan: 'PAN123458',
-      street1: '78 MG Road',
-      street2: 'Block A',
-      city: 'Bangalore',
-      district: 'Bengaluru Urban',
-      state: 'Karnataka',
-      pincode: '560001',
-      location: 'Bangalore',
-      branches: 3,
-      altContactCountryCode: '+91',
-      altContactNumber: '9876543213',
-      status: 'Active',
-      createdBy: 'Admin',
-      createdAt: '2024-01-10 09:00 AM',
-    },
-  ]
-
-  const filterRetailers = (list) => {
-    if (!list) return []
-    let out = list
-    if (searchText.trim()) {
-      const q = searchText.trim().toLowerCase()
-      out = out.filter(
-        (r) =>
-          (r.businessName && r.businessName.toLowerCase().includes(q)) ||
-          (r.contactPerson && r.contactPerson.toLowerCase().includes(q)) ||
-          (r.gst && r.gst.toLowerCase().includes(q))
-      )
+  function retailerToForm(r) {
+    if (!r) return {}
+    return {
+      businessName: r.businessName,
+      storeName: r.storeName ?? '',
+      contactPerson: r.contactPerson,
+      email: r.email ?? '',
+      whatsappCountryCode: r.whatsappCountryCode ?? '+91',
+      whatsappNumber: r.whatsappNumber,
+      altContactCountryCode: r.altContactCountryCode ?? '',
+      altContactNumber: r.altContactNumber ?? '',
+      gst: r.gst,
+      pan: r.pan,
+      gstAttachmentUrl: r.gstAttachmentUrl ?? '',
+      panAttachmentUrl: r.panAttachmentUrl ?? '',
+      street1: r.street1,
+      street2: r.street2 ?? '',
+      city: r.city,
+      district: r.district,
+      state: r.state,
+      pincode: r.pincode,
+      branches: r.branches ?? 1,
+      status: r.status,
     }
-    if (dateRange && dateRange[0] && dateRange[1]) {
-      const start = dateRange[0].startOf('day')
-      const end = dateRange[1].endOf('day')
-      out = out.filter((r) => {
-        const d = r.createdAt ? dayjs(r.createdAt) : null
-        return d && d.isValid() && !d.isBefore(start) && !d.isAfter(end)
-      })
+  }
+
+  function formToBody(values) {
+    return {
+      businessName: values.businessName,
+      storeName: values.storeName ?? '',
+      contactPerson: values.contactPerson,
+      email: values.email ?? '',
+      whatsappCountryCode: values.whatsappCountryCode ?? '+91',
+      whatsappNumber: values.whatsappNumber,
+      altContactCountryCode: values.altContactCountryCode ?? '',
+      altContactNumber: values.altContactNumber ?? '',
+      gst: values.gst,
+      pan: values.pan,
+      gstAttachmentUrl: values.gstAttachmentUrl ?? '',
+      panAttachmentUrl: values.panAttachmentUrl ?? '',
+      street1: values.street1,
+      street2: values.street2 ?? '',
+      city: values.city,
+      district: values.district,
+      state: values.state,
+      pincode: values.pincode,
+      branches: values.branches ?? 1,
+      ...(selectedRetailer && { status: values.status }),
     }
-    return out
   }
 
-  const handleApprove = (record) => {
-    message.success(`${record.businessName} has been approved`)
+  const handleApprove = async (record) => {
+    try {
+      await approveRetailer(record._id).unwrap()
+      message.success(`${record.businessName} has been approved`)
+    } catch (e) {
+      message.error(e?.data?.message || 'Approve failed')
+    }
   }
 
-  const handleReject = (record) => {
-    message.warning(`${record.businessName} has been rejected`)
+  const handleRejectSubmit = async () => {
+    if (!retailerToReject) return
+    try {
+      const values = await rejectReasonForm.validateFields()
+      await rejectRetailer({ id: retailerToReject._id, reason: values.reason }).unwrap()
+      message.warning(`${retailerToReject.businessName} has been rejected`)
+      setRejectModalVisible(false)
+      setRetailerToReject(null)
+      rejectReasonForm.resetFields()
+    } catch (e) {
+      if (e?.errorFields) return
+      message.error(e?.data?.message || 'Reject failed')
+    }
   }
 
-  const handleActivate = (record) => {
-    message.success(`${record.businessName} has been activated`)
+  const handleActivate = async (record) => {
+    try {
+      await setRetailerStatus({ id: record._id, status: 'active' }).unwrap()
+      message.success(`${record.businessName} has been activated`)
+    } catch (e) {
+      message.error(e?.data?.message || 'Activate failed')
+    }
   }
 
-  const handleDisable = (record) => {
-    message.warning(`${record.businessName} has been disabled`)
+  const handleDisable = async (record) => {
+    try {
+      await setRetailerStatus({ id: record._id, status: 'disabled' }).unwrap()
+      message.warning(`${record.businessName} has been disabled`)
+    } catch (e) {
+      message.error(e?.data?.message || 'Disable failed')
+    }
   }
 
-  const handleRemove = (record) => {
-    message.error(`${record.businessName} has been removed`)
+  const handleRemove = async (record) => {
+    try {
+      await deleteRetailer(record._id).unwrap()
+      message.success(`${record.businessName} has been removed`)
+    } catch (e) {
+      message.error(e?.data?.message || 'Remove failed')
+    }
   }
 
-  const handleCreate = () => {
-    createForm.validateFields().then(() => {
+  const handleCreate = async () => {
+    try {
+      const values = await createForm.validateFields()
+      await createRetailer(formToBody(values)).unwrap()
       message.success('Retailer created successfully')
       setCreateModalVisible(false)
       createForm.resetFields()
-    })
+    } catch (e) {
+      if (e?.errorFields) return
+      message.error(e?.data?.message || 'Create failed')
+    }
   }
 
-  const handleEdit = () => {
-    form.validateFields().then(() => {
+  const handleEdit = async () => {
+    try {
+      const values = await form.validateFields()
+      await updateRetailer({ id: selectedRetailer._id, ...formToBody(values) }).unwrap()
       message.success('Retailer updated successfully')
       setEditModalVisible(false)
-    })
+    } catch (e) {
+      if (e?.errorFields) return
+      message.error(e?.data?.message || 'Update failed')
+    }
   }
+
+  const handleExport = async () => {
+    try {
+      const blob = await triggerExport(listParams).unwrap()
+      downloadExportBlob(blob)
+      message.success('Export downloaded')
+    } catch (e) {
+      message.error(e?.data?.message || e?.message || 'Export failed')
+    }
+  }
+
+  const handleDownloadSample = async () => {
+    try {
+      const blob = await triggerSample().unwrap()
+      downloadSampleBlob(blob)
+      message.success('Sample file downloaded')
+    } catch (e) {
+      message.error(e?.data?.message || e?.message || 'Download failed')
+    }
+  }
+
+  const handleImport = async () => {
+    if (!importFile) {
+      message.warning('Please select a file')
+      return
+    }
+    setImporting(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', importFile)
+      const result = await importRetailers(formData).unwrap()
+      setImportModalVisible(false)
+      setImportFile(null)
+      if (result.imported > 0) {
+        setActiveTab('requests')
+        message.success(`${result.imported} retailer(s) imported. View them in Approval Requests.${result.errors?.length ? ` ${result.errors.length} row(s) had errors.` : ''}`)
+      } else {
+        const errMsg = result.errors?.length
+          ? `No rows imported. ${result.errors.length} row(s) had errors (check headers match sample and no duplicate WhatsApp/email).`
+          : 'No rows imported. Check that column headers match the sample file.'
+        message.warning(errMsg)
+      }
+      if (result.errors?.length) {
+        console.warn('Import errors:', result.errors)
+      }
+    } catch (e) {
+      message.error(e?.data?.message || e?.message || 'Import failed')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const handleFileUpload = useCallback(
+    async (formInstance, file, fieldName) => {
+      const ext = (file.name || '').toLowerCase().split('.').pop()
+      if (!['pdf', 'jpeg', 'jpg', 'png'].includes(ext)) {
+        message.error('Only PDF, JPEG, JPG and PNG are allowed')
+        return
+      }
+      try {
+        const fd = new FormData()
+        fd.append('file', file)
+        const res = await uploadFile(fd).unwrap()
+        if (res?.url) formInstance.setFieldValue(fieldName, res.url)
+      } catch (err) {
+        message.error(getUploadErrorMessage(err))
+      }
+    },
+    [uploadFile]
+  )
 
   const tabItems = [
     {
@@ -322,8 +474,10 @@ const RetailerBoard = () => {
       label: 'Approval Requests',
       children: (
         <Table
+          rowKey="_id"
           columns={requestColumns}
-          dataSource={filterRetailers(mockRequests)}
+          dataSource={retailers}
+          loading={listLoading}
           pagination={{ pageSize: 10 }}
         />
       ),
@@ -333,13 +487,140 @@ const RetailerBoard = () => {
       label: 'Approved Retailers',
       children: (
         <Table
+          rowKey="_id"
           columns={approvedColumns}
-          dataSource={filterRetailers(mockApproved)}
+          dataSource={retailers}
+          loading={listLoading}
           pagination={{ pageSize: 10 }}
         />
       ),
     },
+    {
+      key: 'rejected',
+      label: 'Rejected',
+      children: (
+        <Table
+          rowKey="_id"
+          columns={rejectedColumns}
+          dataSource={retailers}
+          loading={listLoading}
+          pagination={{ pageSize: 10 }}
+          scroll={{ x: 'max-content' }}
+        />
+      ),
+    },
   ]
+
+  const sharedFormItems = (formInstance, isCreate, attachmentUrls = {}) => {
+    const { gstUrl = '', panUrl = '' } = attachmentUrls
+    if (!formInstance) return null
+    return (
+    <>
+      <Form.Item name="businessName" label="Business Name" rules={[{ required: true }]}>
+        <Input placeholder="Business / company name" />
+      </Form.Item>
+      <Form.Item name="storeName" label="Store Name">
+        <Input placeholder="Store / outlet name (optional)" />
+      </Form.Item>
+      <Form.Item name="contactPerson" label="Contact Person Name" rules={[{ required: true }]}>
+        <Input />
+      </Form.Item>
+      <PhoneInput countryCodeName="whatsappCountryCode" numberName="whatsappNumber" label="WhatsApp Number" required />
+      <PhoneInput countryCodeName="altContactCountryCode" numberName="altContactNumber" label="Alternative Contact Number" required={false} />
+      <Form.Item name="email" label="Email ID">
+        <Input type="email" />
+      </Form.Item>
+      <Row gutter={12}>
+        <Col span={14}>
+          <Form.Item name="gst" label="GST Number" rules={[{ required: true }]}>
+            <Input placeholder="GST Number" />
+          </Form.Item>
+        </Col>
+        <Col span={10}>
+          <Form.Item name="gstAttachmentUrl" hidden>
+            <Input type="hidden" />
+          </Form.Item>
+          <Form.Item label="GST Attachment" help="PDF, JPEG, JPG, PNG only">
+            <Space>
+              <Upload
+                maxCount={1}
+                accept={ALLOWED_UPLOAD_ACCEPT}
+                beforeUpload={(file) => {
+                  handleFileUpload(formInstance, file, 'gstAttachmentUrl')
+                  return false
+                }}
+                showUploadList={{ showPreviewIcon: false }}
+              >
+                <Button icon={<UploadOutlined />} loading={uploading}>Upload</Button>
+              </Upload>
+              {gstUrl && <Link href={gstUrl} target="_blank" rel="noopener noreferrer">View file</Link>}
+            </Space>
+          </Form.Item>
+        </Col>
+      </Row>
+      <Row gutter={12}>
+        <Col span={14}>
+          <Form.Item name="pan" label="PAN Number" rules={[{ required: true }]}>
+            <Input placeholder="PAN Number" />
+          </Form.Item>
+        </Col>
+        <Col span={10}>
+          <Form.Item name="panAttachmentUrl" hidden>
+            <Input type="hidden" />
+          </Form.Item>
+          <Form.Item label="PAN Attachment" help="PDF, JPEG, JPG, PNG only">
+            <Space>
+              <Upload
+                maxCount={1}
+                accept={ALLOWED_UPLOAD_ACCEPT}
+                beforeUpload={(file) => {
+                  handleFileUpload(formInstance, file, 'panAttachmentUrl')
+                  return false
+                }}
+                showUploadList={{ showPreviewIcon: false }}
+              >
+                <Button icon={<UploadOutlined />} loading={uploading}>Upload</Button>
+              </Upload>
+              {panUrl && <Link href={panUrl} target="_blank" rel="noopener noreferrer">View file</Link>}
+            </Space>
+          </Form.Item>
+        </Col>
+      </Row>
+      <Form.Item name="street1" label="Street Name 1" rules={[{ required: true }]}>
+        <Input placeholder="Street / building / area" />
+      </Form.Item>
+      <Form.Item name="street2" label="Street Name 2">
+        <Input placeholder="Optional" />
+      </Form.Item>
+      <Form.Item name="city" label="City Name" rules={[{ required: true }]}>
+        <Input />
+      </Form.Item>
+      <Form.Item name="district" label="District Name" rules={[{ required: true }]}>
+        <Input placeholder="District" />
+      </Form.Item>
+      <Form.Item name="state" label="State Name" rules={[{ required: true }]}>
+        <Input />
+      </Form.Item>
+      <Form.Item name="pincode" label="Pin Code" rules={[{ required: true }]}>
+        <Input placeholder="e.g. 400001" />
+      </Form.Item>
+      <Form.Item name="branches" label="Number of Branches">
+        <Input type="number" min={1} />
+      </Form.Item>
+      {!isCreate && selectedRetailer && (
+        <Form.Item name="status" label="Status">
+          <Select>
+            <Option value="pending_approval">Pending</Option>
+            <Option value="approved">Approved</Option>
+            <Option value="rejected">Rejected</Option>
+            <Option value="active">Active</Option>
+            <Option value="disabled">Disabled</Option>
+          </Select>
+        </Form.Item>
+      )}
+    </>
+  )
+  }
 
   return (
     <div>
@@ -348,7 +629,7 @@ const RetailerBoard = () => {
         <Title level={2}>Retailer Board</Title>
         <Space wrap>
           <Input
-            placeholder="Search by Business Name, Contact or GST"
+            placeholder="Search by Business Name, Store, Contact, GST"
             prefix={<SearchOutlined />}
             style={{ width: 280 }}
             value={searchText}
@@ -356,27 +637,19 @@ const RetailerBoard = () => {
             allowClear
           />
           <RangePicker value={dateRange} onChange={setDateRange} allowClear />
-          <Button icon={<ExportOutlined />} onClick={() => message.info('Export – connect to API')}>
+          <Button icon={<ExportOutlined />} onClick={handleExport} loading={exporting}>
             Export
           </Button>
           <Button icon={<ImportOutlined />} onClick={() => setImportModalVisible(true)}>
             Import
           </Button>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => setCreateModalVisible(true)}
-          >
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalVisible(true)}>
             Create Retailer
           </Button>
         </Space>
       </Space>
 
-      <Tabs
-        activeKey={activeTab}
-        onChange={setActiveTab}
-        items={tabItems}
-      />
+      <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} />
 
       <Modal
         title="Create Retailer"
@@ -387,68 +660,10 @@ const RetailerBoard = () => {
           createForm.resetFields()
         }}
         width={640}
+        confirmLoading={creating}
       >
         <Form form={createForm} layout="vertical">
-          <Form.Item name="businessName" label="Business / Store Name" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="contactPerson" label="Contact Person Name" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <PhoneInput countryCodeName="whatsappCountryCode" numberName="whatsappNumber" label="WhatsApp Number" required />
-          <PhoneInput countryCodeName="altContactCountryCode" numberName="altContactNumber" label="Alternative Contact Number" required={false} />
-          <Form.Item name="email" label="Email ID">
-            <Input type="email" />
-          </Form.Item>
-          <Row gutter={12}>
-            <Col span={14}>
-              <Form.Item name="gst" label="GST Number" rules={[{ required: true }]}>
-                <Input placeholder="GST Number" />
-              </Form.Item>
-            </Col>
-            <Col span={10}>
-              <Form.Item name="gstCertificate" label="GST Attachment" valuePropName="fileList">
-                <Upload maxCount={1} beforeUpload={() => false} accept=".pdf,.jpg,.jpeg,.png" showUploadList={false}>
-                  <Button icon={<UploadOutlined />}>Upload</Button>
-                </Upload>
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={12}>
-            <Col span={14}>
-              <Form.Item name="pan" label="PAN Number" rules={[{ required: true }]}>
-                <Input placeholder="PAN Number" />
-              </Form.Item>
-            </Col>
-            <Col span={10}>
-              <Form.Item name="panCertificate" label="PAN Attachment" valuePropName="fileList">
-                <Upload maxCount={1} beforeUpload={() => false} accept=".pdf,.jpg,.jpeg,.png" showUploadList={false}>
-                  <Button icon={<UploadOutlined />}>Upload</Button>
-                </Upload>
-              </Form.Item>
-            </Col>
-          </Row>
-          <Form.Item name="street1" label="Street Name 1" rules={[{ required: true }]}>
-            <Input placeholder="Street / building / area" />
-          </Form.Item>
-          <Form.Item name="street2" label="Street Name 2">
-            <Input placeholder="Optional" />
-          </Form.Item>
-          <Form.Item name="city" label="City Name" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="district" label="District Name" rules={[{ required: true }]}>
-            <Input placeholder="District" />
-          </Form.Item>
-          <Form.Item name="state" label="State Name" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="pincode" label="Pin Code" rules={[{ required: true }]}>
-            <Input placeholder="e.g. 400001" />
-          </Form.Item>
-          <Form.Item name="branches" label="Number of Branches">
-            <Input type="number" />
-          </Form.Item>
+          {sharedFormItems(createForm, true, { gstUrl: gstUrlCreate, panUrl: panUrlCreate })}
         </Form>
       </Modal>
 
@@ -458,94 +673,137 @@ const RetailerBoard = () => {
         onOk={handleEdit}
         onCancel={() => setEditModalVisible(false)}
         width={640}
+        confirmLoading={updating}
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="businessName" label="Business / Store Name" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="contactPerson" label="Contact Person Name" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <PhoneInput countryCodeName="whatsappCountryCode" numberName="whatsappNumber" label="WhatsApp Number" required />
-          <PhoneInput countryCodeName="altContactCountryCode" numberName="altContactNumber" label="Alternative Contact Number" required={false} />
-          <Form.Item name="email" label="Email ID">
-            <Input type="email" />
-          </Form.Item>
-          <Row gutter={12}>
-            <Col span={14}>
-              <Form.Item name="gst" label="GST Number" rules={[{ required: true }]}>
-                <Input placeholder="GST Number" />
-              </Form.Item>
-            </Col>
-            <Col span={10}>
-              <Form.Item name="gstCertificate" label="GST Attachment" valuePropName="fileList">
-                <Upload maxCount={1} beforeUpload={() => false} accept=".pdf,.jpg,.jpeg,.png" showUploadList={false}>
-                  <Button icon={<UploadOutlined />}>Upload</Button>
-                </Upload>
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={12}>
-            <Col span={14}>
-              <Form.Item name="pan" label="PAN Number" rules={[{ required: true }]}>
-                <Input placeholder="PAN Number" />
-              </Form.Item>
-            </Col>
-            <Col span={10}>
-              <Form.Item name="panCertificate" label="PAN Attachment" valuePropName="fileList">
-                <Upload maxCount={1} beforeUpload={() => false} accept=".pdf,.jpg,.jpeg,.png" showUploadList={false}>
-                  <Button icon={<UploadOutlined />}>Upload</Button>
-                </Upload>
-              </Form.Item>
-            </Col>
-          </Row>
-          <Form.Item name="street1" label="Street Name 1" rules={[{ required: true }]}>
-            <Input placeholder="Street / building / area" />
-          </Form.Item>
-          <Form.Item name="street2" label="Street Name 2">
-            <Input placeholder="Optional" />
-          </Form.Item>
-          <Form.Item name="city" label="City Name" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="district" label="District Name" rules={[{ required: true }]}>
-            <Input placeholder="District" />
-          </Form.Item>
-          <Form.Item name="state" label="State Name" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="pincode" label="Pin Code" rules={[{ required: true }]}>
-            <Input placeholder="e.g. 400001" />
-          </Form.Item>
-          <Form.Item name="branches" label="Number of Branches">
-            <Input type="number" />
-          </Form.Item>
-          <Form.Item name="status" label="Status">
-            <Select>
-              <Option value="Pending">Pending</Option>
-              <Option value="Approved">Approved</Option>
-              <Option value="Rejected">Rejected</Option>
-              <Option value="Active">Active</Option>
-              <Option value="Disabled">Disabled</Option>
-            </Select>
+          {sharedFormItems(form, false, { gstUrl: gstUrlEdit, panUrl: panUrlEdit })}
+        </Form>
+      </Modal>
+
+      <Modal
+        title={retailerToReject ? `Reject: ${retailerToReject.businessName}` : 'Reject Retailer'}
+        open={rejectModalVisible}
+        onOk={handleRejectSubmit}
+        onCancel={() => {
+          setRejectModalVisible(false)
+          setRetailerToReject(null)
+          rejectReasonForm.resetFields()
+        }}
+        okText="Reject"
+        okButtonProps={{ danger: true }}
+        width={480}
+      >
+        <Form form={rejectReasonForm} layout="vertical">
+          <Form.Item
+            name="reason"
+            label="Reject Reason"
+            rules={[{ required: true, message: 'Please enter the reason for rejection' }]}
+          >
+            <Input.TextArea rows={4} placeholder="Enter reason for rejecting this retailer request..." />
           </Form.Item>
         </Form>
       </Modal>
 
       <Modal
+        title="View Retailer"
+        open={viewModalVisible}
+        onCancel={() => { setViewModalVisible(false); setViewRetailer(null) }}
+        footer={[
+          <Button key="close" onClick={() => { setViewModalVisible(false); setViewRetailer(null) }}>Close</Button>,
+          viewRetailer && (
+            <Button
+              key="edit"
+              type="primary"
+              icon={<EditOutlined />}
+              onClick={() => {
+                setViewModalVisible(false)
+                setSelectedRetailer(viewRetailer)
+                form.setFieldsValue(retailerToForm(viewRetailer))
+                setEditModalVisible(true)
+                setViewRetailer(null)
+              }}
+            >
+              Edit
+            </Button>
+          ),
+        ]}
+        width={560}
+      >
+        {viewRetailer && (
+          <div style={{ maxHeight: 480, overflow: 'auto' }}>
+            <p><strong>Business Name:</strong> {viewRetailer.businessName}</p>
+            <p><strong>Store Name:</strong> {viewRetailer.storeName || '—'}</p>
+            <p><strong>Contact Person:</strong> {viewRetailer.contactPerson}</p>
+            <p><strong>WhatsApp:</strong> {viewRetailer.whatsappCountryCode} {viewRetailer.whatsappNumber}</p>
+            <p><strong>Email:</strong> {viewRetailer.email || '—'}</p>
+            <p><strong>GST:</strong> {viewRetailer.gst}</p>
+            <p>
+              <strong>GST Document:</strong>{' '}
+              {viewRetailer.gstAttachmentUrl ? (
+                <Link href={viewRetailer.gstAttachmentUrl} target="_blank" rel="noopener noreferrer">View file</Link>
+              ) : '—'}
+            </p>
+            <p><strong>PAN:</strong> {viewRetailer.pan}</p>
+            <p>
+              <strong>PAN Document:</strong>{' '}
+              {viewRetailer.panAttachmentUrl ? (
+                <Link href={viewRetailer.panAttachmentUrl} target="_blank" rel="noopener noreferrer">View file</Link>
+              ) : '—'}
+            </p>
+            <p><strong>Address:</strong> {[viewRetailer.street1, viewRetailer.street2, viewRetailer.city, viewRetailer.district, viewRetailer.state, viewRetailer.pincode].filter(Boolean).join(', ')}</p>
+            <p><strong>Branches:</strong> {viewRetailer.branches ?? '—'}</p>
+            <p><strong>Status:</strong> <Tag style={{ margin: 0, padding: '2px 10px' }}>{STATUS_DISPLAY[viewRetailer.status] ?? viewRetailer.status}</Tag></p>
+            {viewRetailer.status === 'rejected' && (
+              <>
+                <p><strong>Reject Reason:</strong> {viewRetailer.rejectedReason || '—'}</p>
+                <p><strong>Rejected At:</strong> {viewRetailer.rejectedAt ? new Date(viewRetailer.rejectedAt).toLocaleString() : '—'}</p>
+              </>
+            )}
+            {/* <p><strong>Created By:</strong> {viewRetailer.createdBy}</p> */}
+            <p><strong>Created At:</strong> {viewRetailer.createdAt || '—'}</p>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
         title="Import Retailers"
         open={importModalVisible}
-        onCancel={() => setImportModalVisible(false)}
+        onCancel={() => {
+          setImportModalVisible(false)
+          setImportFile(null)
+        }}
         footer={[
-          <Button key="cancel" onClick={() => setImportModalVisible(false)}>Cancel</Button>,
-          <Button key="submit" type="primary" onClick={() => { message.success('Import will process uploaded file'); setImportModalVisible(false); }}>Upload & Import</Button>,
+          <Button key="cancel" onClick={() => { setImportModalVisible(false); setImportFile(null); }}>
+            Cancel
+          </Button>,
+          <Button key="sample" icon={<DownloadOutlined />} onClick={handleDownloadSample} loading={sampleLoading}>
+            Download Sample
+          </Button>,
+          <Button key="submit" type="primary" onClick={handleImport} loading={importing || importMutationLoading} disabled={!importFile}>
+            Upload & Import
+          </Button>,
         ]}
-        width={480}
+        width={520}
       >
-        <p style={{ marginBottom: 16 }}>Upload a CSV or Excel file with retailer details. Columns: Business Name, Contact Person, WhatsApp Country Code, WhatsApp Number, Email, GST, PAN, Street1, Street2, City, State, Pincode, Branches, Alt Contact Country Code, Alt Contact Number.</p>
-        <Upload.Dragger maxCount={1} beforeUpload={() => false} accept=".csv,.xlsx,.xls">
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="Only mandatory columns are allowed. Duplicate WhatsApp number or email (in DB or in file) will be skipped."
+        />
+        <p style={{ marginBottom: 12 }}>Allowed columns: Business Name, Store Name, Contact Person, WhatsApp Country Code, WhatsApp Number, Email, GST, PAN, Street1, Street2, City, District, State, Pincode, Branches, Alt Contact Country Code, Alt Contact Number.</p>
+        <Upload.Dragger
+          maxCount={1}
+          accept=".xlsx,.xls,.csv"
+          beforeUpload={(file) => {
+            setImportFile(file)
+            return false
+          }}
+          onRemove={() => setImportFile(null)}
+          fileList={importFile ? [{ name: importFile.name, uid: '-1' }] : []}
+        >
           <p className="ant-upload-text">Click or drag file to this area</p>
-          <p className="ant-upload-hint">CSV or Excel only</p>
+          <p className="ant-upload-hint">Excel or CSV only. No extra columns.</p>
         </Upload.Dragger>
       </Modal>
     </div>

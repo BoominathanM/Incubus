@@ -2,12 +2,13 @@ import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react'
 import { getApiBase } from '../../utils/api'
 
 const baseQueryWithAuth = async (args, api, extraOptions) => {
+  const isFormData = args?.body instanceof FormData
   const result = await fetchBaseQuery({
     baseUrl: getApiBase(),
     prepareHeaders: (headers) => {
       const token = localStorage.getItem('token')
       if (token) headers.set('Authorization', `Bearer ${token}`)
-      headers.set('Content-Type', 'application/json')
+      if (!isFormData) headers.set('Content-Type', 'application/json')
       return headers
     },
   })(args, api, extraOptions)
@@ -22,6 +23,6 @@ const baseQueryWithAuth = async (args, api, extraOptions) => {
 export const baseApi = createApi({
   reducerPath: 'api',
   baseQuery: baseQueryWithAuth,
-  tagTypes: ['Users', 'CountryCodes', 'AskevaConfig', 'AskevaTemplates', 'EventMappings'],
+  tagTypes: ['Users', 'CountryCodes', 'AskevaConfig', 'AskevaTemplates', 'EventMappings', 'Retailers'],
   endpoints: () => ({}),
 })
