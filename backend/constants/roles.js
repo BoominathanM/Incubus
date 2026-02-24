@@ -1,8 +1,8 @@
 // All roles in the system (for validation)
 const ROLES = Object.freeze(['superadmin', 'admin', 'executive', 'billing', 'warehouse'])
 
-// Roles that admin/superadmin can assign when creating or editing users
-const ASSIGNABLE_ROLES = Object.freeze(['superadmin', 'admin', 'executive', 'billing', 'warehouse'])
+// Roles that admin/superadmin can assign when creating or editing users (only one superadmin exists; cannot be created via UI/API)
+const ASSIGNABLE_ROLES = Object.freeze(['admin', 'executive', 'billing', 'warehouse'])
 
 // Role labels for display (optional use in API responses)
 const ROLE_LABELS = {

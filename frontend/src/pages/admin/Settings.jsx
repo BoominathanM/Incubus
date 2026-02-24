@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { Tabs, Card, Table, Tag, Button, Space, Input, Modal, Form, Select, message, Typography, List, Badge, Empty } from 'antd'
 import Breadcrumbs from '../../components/Breadcrumbs'
 import PhoneInput from '../../components/PhoneInput'
+import { useAuth } from '../../context/AuthContext'
 import {
   useGetUsersQuery,
   useCreateUserMutation,
@@ -29,6 +30,7 @@ const statusDisplay = (s) => (s === 'active' ? 'Active' : 'Inactive')
 const ROLE_LABELS = { admin: 'Admin', executive: 'Executive Agent', billing: 'Billing Agent', warehouse: 'Warehouse & Delivery Agent', superadmin: 'Super Admin' }
 
 const Settings = () => {
+  const { user: currentUser } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'users')
   const [userModalVisible, setUserModalVisible] = useState(false)
@@ -94,50 +96,51 @@ const Settings = () => {
     {
       title: 'Actions',
       key: 'actions',
-      render: (_, record) => (
-        <Space wrap>
-          <Button
-            icon={<EditOutlined />}
-            onClick={() => {
-              setSelectedUser(record)
-              const mobileStr = record.phone || record.mobile || ''
-              const match = mobileStr.match(/^(\+\d+)\s*(.*)$/)
-              const values = {
-                ...record,
-                status: record.status === 'active' ? 'active' : 'inactive',
-                mobileCountryCode: record.mobileCountryCode ?? match?.[1] ?? '+91',
-                mobileNumber: record.mobileNumber ?? match?.[2] ?? mobileStr.replace(/^\+\d+\s*/, ''),
-              }
-              userForm.setFieldsValue(values)
-              setUserModalVisible(true)
-            }}
-          >
-            Edit
-          </Button>
-          {record.status === 'active' ? (
+      render: (_, record) => {
+        const isSuperAdminUser = record.role === 'superadmin'
+        const canManageSuperAdmin = currentUser?.role === 'superadmin'
+        const canEdit = canManageSuperAdmin || !isSuperAdminUser
+        const showDeactivateActivateDelete = !isSuperAdminUser
+        return (
+          <Space wrap>
             <Button
-              danger
-              onClick={() => handleDeactivateUser(record)}
+              icon={<EditOutlined />}
+              disabled={!canEdit}
+              onClick={() => {
+                setSelectedUser(record)
+                const mobileStr = record.phone || record.mobile || ''
+                const match = mobileStr.match(/^(\+\d+)\s*(.*)$/)
+                const values = {
+                  ...record,
+                  status: record.status === 'active' ? 'active' : 'inactive',
+                  mobileCountryCode: record.mobileCountryCode ?? match?.[1] ?? '+91',
+                  mobileNumber: record.mobileNumber ?? match?.[2] ?? mobileStr.replace(/^\+\d+\s*/, ''),
+                }
+                userForm.setFieldsValue(values)
+                setUserModalVisible(true)
+              }}
             >
-              Deactivate
+              Edit
             </Button>
-          ) : (
-            <Button
-              type="primary"
-              onClick={() => handleActivateUser(record)}
-            >
-              Activate
-            </Button>
-          )}
-          <Button
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => handleDeleteUser(record)}
-          >
-            Delete
-          </Button>
-        </Space>
-      ),
+            {showDeactivateActivateDelete && (
+              record.status === 'active' ? (
+                <Button danger disabled={!canEdit} onClick={() => handleDeactivateUser(record)}>
+                  Deactivate
+                </Button>
+              ) : (
+                <Button type="primary" disabled={!canEdit} onClick={() => handleActivateUser(record)}>
+                  Activate
+                </Button>
+              )
+            )}
+            {showDeactivateActivateDelete && (
+              <Button danger icon={<DeleteOutlined />} disabled={!canEdit} onClick={() => handleDeleteUser(record)}>
+                Delete
+              </Button>
+            )}
+          </Space>
+        )
+      },
     },
   ]
 
@@ -203,18 +206,26 @@ const Settings = () => {
     }
   }
 
-  const handleDeactivateUser = async (record) => {
-    try {
-      const res = await updateUserStatus({ id: record.id || record._id, status: 'inactive' }).unwrap()
-      if (res.success) {
-        message.success(`${record.name} has been deactivated`)
-        refetchUsers()
-      } else {
-        message.error(res.message || 'Failed to deactivate')
-      }
-    } catch (err) {
-      message.error(err?.data?.message || err?.message || 'Failed to deactivate')
-    }
+  const handleDeactivateUser = (record) => {
+    Modal.confirm({
+      title: 'Deactivate User',
+      content: `Are you sure you want to deactivate ${record.name}? They will not be able to sign in until activated again.`,
+      okText: 'Deactivate',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          const res = await updateUserStatus({ id: record.id || record._id, status: 'inactive' }).unwrap()
+          if (res.success) {
+            message.success(`${record.name} has been deactivated`)
+            refetchUsers()
+          } else {
+            message.error(res.message || 'Failed to deactivate')
+          }
+        } catch (err) {
+          message.error(err?.data?.message || err?.message || 'Failed to deactivate')
+        }
+      },
+    })
   }
 
   const handleCreateUser = () => {
@@ -618,13 +629,16 @@ const Settings = () => {
           </Form.Item>
           <PhoneInput countryCodeName="mobileCountryCode" numberName="mobileNumber" label="Mobile Number" required />
           <Form.Item name="role" label="Role" rules={[{ required: true }]}>
-            <Select>
-              <Option value="superadmin">Super Admin</Option>
-              <Option value="admin">Admin</Option>
-              <Option value="executive">Executive Agent</Option>
-              <Option value="billing">Billing Agent</Option>
-              <Option value="warehouse">Warehouse & Delivery Agent</Option>
-            </Select>
+            {selectedUser?.role === 'superadmin' ? (
+              <Input disabled value="Super Admin" />
+            ) : (
+              <Select>
+                <Option value="admin">Admin</Option>
+                <Option value="executive">Executive Agent</Option>
+                <Option value="billing">Billing Agent</Option>
+                <Option value="warehouse">Warehouse & Delivery Agent</Option>
+              </Select>
+            )}
           </Form.Item>
           {!selectedUser && (
             <Form.Item name="password" label="Password" rules={[{ required: true, message: 'Password is required' }]}>
@@ -657,10 +671,14 @@ const Settings = () => {
             </>
           )}
           <Form.Item name="status" label="Status">
-            <Select>
-              <Option value="active">Active</Option>
-              <Option value="inactive">Inactive</Option>
-            </Select>
+            {selectedUser?.role === 'superadmin' ? (
+              <Input disabled value={selectedUser?.status === 'inactive' ? 'Inactive' : 'Active'} />
+            ) : (
+              <Select>
+                <Option value="active">Active</Option>
+                <Option value="inactive">Inactive</Option>
+              </Select>
+            )}
           </Form.Item>
         </Form>
       </Modal>

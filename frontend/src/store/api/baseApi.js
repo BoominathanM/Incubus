@@ -1,10 +1,9 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react'
-
-const API_BASE = import.meta.env.VITE_API_URL || ''
+import { getApiBase } from '../../utils/api'
 
 const baseQueryWithAuth = async (args, api, extraOptions) => {
   const result = await fetchBaseQuery({
-    baseUrl: API_BASE,
+    baseUrl: getApiBase(),
     prepareHeaders: (headers) => {
       const token = localStorage.getItem('token')
       if (token) headers.set('Authorization', `Bearer ${token}`)
@@ -23,6 +22,6 @@ const baseQueryWithAuth = async (args, api, extraOptions) => {
 export const baseApi = createApi({
   reducerPath: 'api',
   baseQuery: baseQueryWithAuth,
-  tagTypes: ['Users', 'CountryCodes'],
+  tagTypes: ['Users', 'CountryCodes', 'AskevaConfig', 'AskevaTemplates', 'EventMappings'],
   endpoints: () => ({}),
 })
