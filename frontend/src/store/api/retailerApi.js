@@ -14,6 +14,10 @@ export const retailerApi = baseApi.injectEndpoints({
       query: () => '/api/retailers/stats',
       providesTags: [{ type: 'Retailers', id: 'LIST' }],
     }),
+    getRetailerStatsByDate: build.query({
+      query: (params) => ({ url: '/api/retailers/stats/by-date', params }),
+      providesTags: [{ type: 'Retailers', id: 'LIST' }],
+    }),
     getRetailerById: build.query({
       query: (id) => `/api/retailers/${id}`,
       providesTags: (_result, _err, id) => [{ type: 'Retailers', id }],
@@ -70,6 +74,7 @@ export const {
   useLazyGetRetailersQuery,
   useGetRetailerByIdQuery,
   useGetRetailerStatsQuery,
+  useGetRetailerStatsByDateQuery,
   useCreateRetailerMutation,
   useUpdateRetailerMutation,
   useDeleteRetailerMutation,

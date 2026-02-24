@@ -1,3 +1,4 @@
+const mongoose = require('mongoose')
 const Retailer = require('../models/Retailer')
 const { validateFileType, uploadToCloudinary } = require('../utils/uploadCloudinary')
 const XLSX = require('xlsx')
@@ -582,6 +583,48 @@ async function stats(req, res) {
   }
 }
 
+async function statsByDate(req, res) {
+  try {
+    const isAdmin = ['admin', 'superadmin'].includes(req.user?.role)
+    const userId = req.user?.id
+    const group = (req.query.group || 'day').toLowerCase()
+    const byMonth = group === 'month'
+
+    const matchQuery = isAdmin ? {} : {}
+    if (!isAdmin && userId) matchQuery.createdBy = new mongoose.Types.ObjectId(userId)
+    const daysBack = byMonth ? 365 : 30
+    const start = new Date()
+    start.setDate(start.getDate() - daysBack)
+    start.setHours(0, 0, 0, 0)
+    matchQuery.createdAt = { $gte: start }
+
+    const dateFormat = byMonth ? { $dateToString: { format: '%Y-%m', date: '$createdAt' } } : { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }
+    const pipeline = [
+      { $match: matchQuery },
+      { $group: { _id: dateFormat, count: { $sum: 1 } } },
+      { $sort: { _id: 1 } },
+    ]
+    const results = await Retailer.aggregate(pipeline)
+
+    const labelKey = byMonth ? 'month' : 'date'
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    const data = results.map((r) => {
+      const id = r._id
+      if (byMonth && id) {
+        const [y, m] = id.split('-')
+        const monthLabel = `${monthNames[parseInt(m, 10) - 1]} ${y}`
+        return { [labelKey]: monthLabel, date: id, count: r.count }
+      }
+      return { [labelKey]: id, date: id, count: r.count }
+    })
+
+    return res.json({ success: true, data })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ success: false, message: err.message || 'Failed to get stats by date' })
+  }
+}
+
 module.exports = {
   list,
   getById,
@@ -596,4 +639,5 @@ module.exports = {
   importSample,
   importRetailers,
   stats,
+  statsByDate,
 }

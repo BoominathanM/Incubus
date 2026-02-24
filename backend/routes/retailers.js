@@ -40,6 +40,7 @@ router.use(authenticate)
 
 router.get('/', retailerController.list)
 router.get('/stats', retailerController.stats)
+router.get('/stats/by-date', retailerController.statsByDate)
 router.get('/export', retailerController.exportRetailers)
 router.get('/import/sample', retailerController.importSample)
 router.post('/upload', requireRole(['admin', 'superadmin', 'executive']), uploadSingle('file'), retailerController.upload)
