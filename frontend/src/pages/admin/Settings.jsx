@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Tabs, Card, Table, Tag, Button, Space, Input, Modal, Form, Select, message, Typography, List, Badge, Empty } from 'antd'
+import { Tabs, Card, Table, Tag, Button, Space, Input, Modal, Form, Select, message, Typography, List, Badge, Empty, Dropdown } from 'antd'
 import Breadcrumbs from '../../components/Breadcrumbs'
 import PhoneInput from '../../components/PhoneInput'
 import { useAuth } from '../../context/AuthContext'
@@ -20,6 +20,7 @@ import {
   BellOutlined,
   MessageOutlined,
   SaveOutlined,
+  MoreOutlined,
 } from '@ant-design/icons'
 
 const { Title } = Typography
@@ -96,49 +97,37 @@ const Settings = () => {
     {
       title: 'Actions',
       key: 'actions',
+      width: 72,
       render: (_, record) => {
         const isSuperAdminUser = record.role === 'superadmin'
         const canManageSuperAdmin = currentUser?.role === 'superadmin'
         const canEdit = canManageSuperAdmin || !isSuperAdminUser
         const showDeactivateActivateDelete = !isSuperAdminUser
+        const openEdit = () => {
+          setSelectedUser(record)
+          const mobileStr = record.phone || record.mobile || ''
+          const match = mobileStr.match(/^(\+\d+)\s*(.*)$/)
+          userForm.setFieldsValue({
+            ...record,
+            status: record.status === 'active' ? 'active' : 'inactive',
+            mobileCountryCode: record.mobileCountryCode ?? match?.[1] ?? '+91',
+            mobileNumber: record.mobileNumber ?? match?.[2] ?? mobileStr.replace(/^\+\d+\s*/, ''),
+          })
+          setUserModalVisible(true)
+        }
+        const menuItems = [
+          { key: 'edit', icon: <EditOutlined />, label: 'Edit', disabled: !canEdit, onClick: openEdit },
+          ...(showDeactivateActivateDelete
+            ? [record.status === 'active'
+                ? { key: 'deactivate', label: 'Deactivate', danger: true, disabled: !canEdit, onClick: () => handleDeactivateUser(record) }
+                : { key: 'activate', label: 'Activate', disabled: !canEdit, onClick: () => handleActivateUser(record) }]
+            : []),
+          ...(showDeactivateActivateDelete ? [{ key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true, disabled: !canEdit, onClick: () => handleDeleteUser(record) }] : []),
+        ]
         return (
-          <Space wrap>
-            <Button
-              icon={<EditOutlined />}
-              disabled={!canEdit}
-              onClick={() => {
-                setSelectedUser(record)
-                const mobileStr = record.phone || record.mobile || ''
-                const match = mobileStr.match(/^(\+\d+)\s*(.*)$/)
-                const values = {
-                  ...record,
-                  status: record.status === 'active' ? 'active' : 'inactive',
-                  mobileCountryCode: record.mobileCountryCode ?? match?.[1] ?? '+91',
-                  mobileNumber: record.mobileNumber ?? match?.[2] ?? mobileStr.replace(/^\+\d+\s*/, ''),
-                }
-                userForm.setFieldsValue(values)
-                setUserModalVisible(true)
-              }}
-            >
-              Edit
-            </Button>
-            {showDeactivateActivateDelete && (
-              record.status === 'active' ? (
-                <Button danger disabled={!canEdit} onClick={() => handleDeactivateUser(record)}>
-                  Deactivate
-                </Button>
-              ) : (
-                <Button type="primary" disabled={!canEdit} onClick={() => handleActivateUser(record)}>
-                  Activate
-                </Button>
-              )
-            )}
-            {showDeactivateActivateDelete && (
-              <Button danger icon={<DeleteOutlined />} disabled={!canEdit} onClick={() => handleDeleteUser(record)}>
-                Delete
-              </Button>
-            )}
-          </Space>
+          <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight">
+            <Button type="text" icon={<MoreOutlined />} />
+          </Dropdown>
         )
       },
     },
@@ -619,6 +608,7 @@ const Settings = () => {
         }}
         width={600}
         confirmLoading={submitLoading}
+        styles={{ body: { maxHeight: '70vh', overflowY: 'auto' } }}
       >
         <Form form={userForm} layout="vertical">
           <Form.Item name="name" label="Name" rules={[{ required: true }]}>

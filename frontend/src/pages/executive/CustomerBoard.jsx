@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react'
-import { Tabs, Table, Tag, Button, Space, Input, Modal, Form, message, Typography, Upload, Row, Col, DatePicker, Alert } from 'antd'
+import { Tabs, Table, Tag, Button, Space, Input, Modal, Form, message, Typography, Upload, Row, Col, DatePicker, Alert, Dropdown } from 'antd'
 import {
   SearchOutlined,
   PlusOutlined,
@@ -10,6 +10,7 @@ import {
   UploadOutlined,
   DeleteOutlined,
   DownloadOutlined,
+  MoreOutlined,
 } from '@ant-design/icons'
 import Breadcrumbs from '../../components/Breadcrumbs'
 import PhoneInput from '../../components/PhoneInput'
@@ -112,46 +113,21 @@ const CustomerBoard = () => {
     {
       title: 'Actions',
       key: 'actions',
-      render: (_, record) => (
-        <Space>
-          <Button
-            type="link"
-            icon={<EyeOutlined />}
-            onClick={() => {
-              setViewRetailer(record)
-              setViewModalVisible(true)
-            }}
-          >
-            View
-          </Button>
-          <Button
-            icon={<EditOutlined />}
-            onClick={() => {
-              setSelectedRetailer(record)
-              form.setFieldsValue(retailerToForm(record))
-              setEditModalVisible(true)
-            }}
-          >
-            Edit
-          </Button>
-          {isOwn(record) && record.status === 'pending_approval' && (
-            <Button
-              danger
-              icon={<DeleteOutlined />}
-              onClick={async () => {
-                try {
-                  await deleteRetailer(record._id).unwrap()
-                  message.success('Request removed')
-                } catch (e) {
-                  message.error(e?.data?.message || 'Remove failed')
-                }
-              }}
-            >
-              Remove
-            </Button>
-          )}
-        </Space>
-      ),
+      width: 72,
+      render: (_, record) => {
+        const menuItems = [
+          { key: 'view', icon: <EyeOutlined />, label: 'View', onClick: () => { setViewRetailer(record); setViewModalVisible(true) } },
+          { key: 'edit', icon: <EditOutlined />, label: 'Edit', onClick: () => { setSelectedRetailer(record); form.setFieldsValue(retailerToForm(record)); setEditModalVisible(true) } },
+          ...(isOwn(record) && record.status === 'pending_approval'
+            ? [{ key: 'remove', icon: <DeleteOutlined />, label: 'Remove', danger: true, onClick: async () => { try { await deleteRetailer(record._id).unwrap(); message.success('Request removed') } catch (e) { message.error(e?.data?.message || 'Remove failed') } } }]
+            : []),
+        ]
+        return (
+          <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight">
+            <Button type="text" icon={<MoreOutlined />} />
+          </Dropdown>
+        )
+      },
     },
   ]
 
@@ -168,30 +144,18 @@ const CustomerBoard = () => {
     {
       title: 'Actions',
       key: 'actions',
-      render: (_, record) => (
-        <Space>
-          <Button
-            type="link"
-            icon={<EyeOutlined />}
-            onClick={() => {
-              setViewRetailer(record)
-              setViewModalVisible(true)
-            }}
-          >
-            View
-          </Button>
-          <Button
-            icon={<EditOutlined />}
-            onClick={() => {
-              setSelectedRetailer(record)
-              form.setFieldsValue(retailerToForm(record))
-              setEditModalVisible(true)
-            }}
-          >
-            Edit
-          </Button>
-        </Space>
-      ),
+      width: 72,
+      render: (_, record) => {
+        const menuItems = [
+          { key: 'view', icon: <EyeOutlined />, label: 'View', onClick: () => { setViewRetailer(record); setViewModalVisible(true) } },
+          { key: 'edit', icon: <EditOutlined />, label: 'Edit', onClick: () => { setSelectedRetailer(record); form.setFieldsValue(retailerToForm(record)); setEditModalVisible(true) } },
+        ]
+        return (
+          <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight">
+            <Button type="text" icon={<MoreOutlined />} />
+          </Dropdown>
+        )
+      },
     },
   ]
 
@@ -214,34 +178,18 @@ const CustomerBoard = () => {
     {
       title: 'Actions',
       key: 'actions',
-      width: 140,
-      render: (_, record) => (
-        <Space size="small" wrap>
-          <Button
-            type="link"
-            size="small"
-            icon={<EyeOutlined />}
-            onClick={() => {
-              setViewRetailer(record)
-              setViewModalVisible(true)
-            }}
-          >
-            View
-          </Button>
-          <Button
-            type="link"
-            size="small"
-            icon={<EditOutlined />}
-            onClick={() => {
-              setSelectedRetailer(record)
-              form.setFieldsValue(retailerToForm(record))
-              setEditModalVisible(true)
-            }}
-          >
-            Edit
-          </Button>
-        </Space>
-      ),
+      width: 72,
+      render: (_, record) => {
+        const menuItems = [
+          { key: 'view', icon: <EyeOutlined />, label: 'View', onClick: () => { setViewRetailer(record); setViewModalVisible(true) } },
+          { key: 'edit', icon: <EditOutlined />, label: 'Edit', onClick: () => { setSelectedRetailer(record); form.setFieldsValue(retailerToForm(record)); setEditModalVisible(true) } },
+        ]
+        return (
+          <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight">
+            <Button type="text" icon={<MoreOutlined />} />
+          </Dropdown>
+        )
+      },
     },
   ]
 
@@ -430,26 +378,32 @@ const CustomerBoard = () => {
     },
   ]
 
+  const formItemStyle = { marginBottom: 20 }
+
   const sharedFormItems = (formInstance, isCreate, attachmentUrls = {}) => {
     const { gstUrl = '', panUrl = '' } = attachmentUrls
     if (!formInstance) return null
     return (
-      <>
-        <Form.Item name="businessName" label="Business Name" rules={[{ required: true }]}>
+      <Space direction="vertical" size="large" style={{ width: '100%', display: 'block' }}>
+        <Form.Item name="businessName" label="Business Name" rules={[{ required: true }]} style={formItemStyle}>
           <Input placeholder="Business / company name" />
         </Form.Item>
-        <Form.Item name="storeName" label="Store Name">
+        <Form.Item name="storeName" label="Store Name" style={formItemStyle}>
           <Input placeholder="Store / outlet name (optional)" />
         </Form.Item>
-        <Form.Item name="contactPerson" label="Contact Person Name" rules={[{ required: true }]}>
+        <Form.Item name="contactPerson" label="Contact Person Name" rules={[{ required: true }]} style={formItemStyle}>
           <Input />
         </Form.Item>
-        <PhoneInput countryCodeName="whatsappCountryCode" numberName="whatsappNumber" label="WhatsApp Number" required />
-        <PhoneInput countryCodeName="altContactCountryCode" numberName="altContactNumber" label="Alternative Contact Number" required={false} />
-        <Form.Item name="email" label="Email ID">
+        <div style={formItemStyle}>
+          <PhoneInput countryCodeName="whatsappCountryCode" numberName="whatsappNumber" label="WhatsApp Number" required />
+        </div>
+        <div style={formItemStyle}>
+          <PhoneInput countryCodeName="altContactCountryCode" numberName="altContactNumber" label="Alternative Contact Number" required={false} />
+        </div>
+        <Form.Item name="email" label="Email ID" style={formItemStyle}>
           <Input type="email" />
         </Form.Item>
-        <Row gutter={12}>
+        <Row gutter={12} style={{ marginBottom: 20 }}>
           <Col span={14}>
             <Form.Item name="gst" label="GST Number" rules={[{ required: true }]}>
               <Input placeholder="GST Number" />
@@ -459,7 +413,7 @@ const CustomerBoard = () => {
             <Form.Item name="gstAttachmentUrl" hidden>
               <Input type="hidden" />
             </Form.Item>
-            <Form.Item label="GST Attachment" help="PDF, JPEG, JPG, PNG only">
+            <Form.Item label="GST Attachment" tooltip="PDF, JPEG, JPG, PNG only">
               <Space>
                 <Upload
                   maxCount={1}
@@ -477,7 +431,7 @@ const CustomerBoard = () => {
             </Form.Item>
           </Col>
         </Row>
-        <Row gutter={12}>
+        <Row gutter={12} style={{ marginBottom: 20 }}>
           <Col span={14}>
             <Form.Item name="pan" label="PAN Number" rules={[{ required: true }]}>
               <Input placeholder="PAN Number" />
@@ -487,7 +441,7 @@ const CustomerBoard = () => {
             <Form.Item name="panAttachmentUrl" hidden>
               <Input type="hidden" />
             </Form.Item>
-            <Form.Item label="PAN Attachment" help="PDF, JPEG, JPG, PNG only">
+            <Form.Item label="PAN Attachment" tooltip="PDF, JPEG, JPG, PNG only">
               <Space>
                 <Upload
                   maxCount={1}
@@ -505,28 +459,28 @@ const CustomerBoard = () => {
             </Form.Item>
           </Col>
         </Row>
-        <Form.Item name="street1" label="Street Name 1" rules={[{ required: true }]}>
+        <Form.Item name="street1" label="Street Name 1" rules={[{ required: true }]} style={formItemStyle}>
           <Input placeholder="Street / building / area" />
         </Form.Item>
-        <Form.Item name="street2" label="Street Name 2">
+        <Form.Item name="street2" label="Street Name 2" style={formItemStyle}>
           <Input placeholder="Optional" />
         </Form.Item>
-        <Form.Item name="city" label="City Name" rules={[{ required: true }]}>
+        <Form.Item name="city" label="City Name" rules={[{ required: true }]} style={formItemStyle}>
           <Input />
         </Form.Item>
-        <Form.Item name="district" label="District Name" rules={[{ required: true }]}>
+        <Form.Item name="district" label="District Name" rules={[{ required: true }]} style={formItemStyle}>
           <Input placeholder="District" />
         </Form.Item>
-        <Form.Item name="state" label="State Name" rules={[{ required: true }]}>
+        <Form.Item name="state" label="State Name" rules={[{ required: true }]} style={formItemStyle}>
           <Input />
         </Form.Item>
-        <Form.Item name="pincode" label="Pin Code" rules={[{ required: true }]}>
+        <Form.Item name="pincode" label="Pin Code" rules={[{ required: true }]} style={formItemStyle}>
           <Input placeholder="e.g. 400001" />
         </Form.Item>
-        <Form.Item name="branches" label="Number of Branches">
+        <Form.Item name="branches" label="Number of Branches" style={formItemStyle}>
           <Input type="number" min={1} />
         </Form.Item>
-      </>
+      </Space>
     )
   }
 
@@ -569,8 +523,9 @@ const CustomerBoard = () => {
         }}
         width={640}
         confirmLoading={creating}
+        styles={{ body: { maxHeight: '70vh', overflowY: 'auto', overflowX: 'hidden', paddingRight: 16 } }}
       >
-        <Form form={createForm} layout="vertical">
+        <Form form={createForm} layout="vertical" style={{ maxWidth: '100%' }}>
           {sharedFormItems(createForm, true, { gstUrl: gstUrlCreate, panUrl: panUrlCreate })}
         </Form>
       </Modal>
@@ -582,8 +537,9 @@ const CustomerBoard = () => {
         onCancel={() => setEditModalVisible(false)}
         width={640}
         confirmLoading={updating}
+        styles={{ body: { maxHeight: '70vh', overflowY: 'auto', overflowX: 'hidden', paddingRight: 16 } }}
       >
-        <Form form={form} layout="vertical">
+        <Form form={form} layout="vertical" style={{ maxWidth: '100%' }}>
           {sharedFormItems(form, false, { gstUrl: gstUrlEdit, panUrl: panUrlEdit })}
         </Form>
       </Modal>
@@ -612,41 +568,39 @@ const CustomerBoard = () => {
           ),
         ]}
         width={560}
+        styles={{ body: { maxHeight: 'none', overflow: 'visible', overflowX: 'hidden' } }}
       >
-        {viewRetailer && (
-          <div style={{ maxHeight: 480, overflow: 'auto' }}>
-            <p><strong>Business Name:</strong> {viewRetailer.businessName}</p>
-            <p><strong>Store Name:</strong> {viewRetailer.storeName || '—'}</p>
-            <p><strong>Contact Person:</strong> {viewRetailer.contactPerson}</p>
-            <p><strong>WhatsApp:</strong> {viewRetailer.whatsappCountryCode} {viewRetailer.whatsappNumber}</p>
-            <p><strong>Email:</strong> {viewRetailer.email || '—'}</p>
-            <p><strong>GST:</strong> {viewRetailer.gst}</p>
-            <p>
-              <strong>GST Document:</strong>{' '}
-              {viewRetailer.gstAttachmentUrl ? (
-                <Link href={viewRetailer.gstAttachmentUrl} target="_blank" rel="noopener noreferrer">View file</Link>
-              ) : '—'}
-            </p>
-            <p><strong>PAN:</strong> {viewRetailer.pan}</p>
-            <p>
-              <strong>PAN Document:</strong>{' '}
-              {viewRetailer.panAttachmentUrl ? (
-                <Link href={viewRetailer.panAttachmentUrl} target="_blank" rel="noopener noreferrer">View file</Link>
-              ) : '—'}
-            </p>
-            <p><strong>Address:</strong> {[viewRetailer.street1, viewRetailer.street2, viewRetailer.city, viewRetailer.district, viewRetailer.state, viewRetailer.pincode].filter(Boolean).join(', ')}</p>
-            <p><strong>Branches:</strong> {viewRetailer.branches ?? '—'}</p>
-            <p><strong>Status:</strong> <Tag style={{ margin: 0, padding: '2px 10px' }}>{STATUS_DISPLAY[viewRetailer.status] ?? viewRetailer.status}</Tag></p>
-            {viewRetailer.status === 'rejected' && (
-              <>
-                <p><strong>Reject Reason:</strong> {viewRetailer.rejectedReason || '—'}</p>
-                <p><strong>Rejected At:</strong> {viewRetailer.rejectedAt ? new Date(viewRetailer.rejectedAt).toLocaleString() : '—'}</p>
-              </>
-            )}
-            <p><strong>Created By:</strong> {viewRetailer.createdBy}</p>
-            <p><strong>Created At:</strong> {viewRetailer.createdAt || '—'}</p>
-          </div>
-        )}
+        {viewRetailer && (() => {
+          const viewRows = [
+            { key: '1', field: 'Business Name', value: viewRetailer.businessName },
+            { key: '2', field: 'Store Name', value: viewRetailer.storeName || '—' },
+            { key: '3', field: 'Contact Person', value: viewRetailer.contactPerson },
+            { key: '4', field: 'WhatsApp', value: [viewRetailer.whatsappCountryCode, viewRetailer.whatsappNumber].filter(Boolean).join(' ') || '—' },
+            { key: '5', field: 'Email', value: viewRetailer.email || '—' },
+            { key: '6', field: 'GST', value: viewRetailer.gst },
+            { key: '7', field: 'GST Document', value: viewRetailer.gstAttachmentUrl ? <Link href={viewRetailer.gstAttachmentUrl} target="_blank" rel="noopener noreferrer">View file</Link> : '—' },
+            { key: '8', field: 'PAN', value: viewRetailer.pan },
+            { key: '9', field: 'PAN Document', value: viewRetailer.panAttachmentUrl ? <Link href={viewRetailer.panAttachmentUrl} target="_blank" rel="noopener noreferrer">View file</Link> : '—' },
+            { key: '10', field: 'Address', value: [viewRetailer.street1, viewRetailer.street2, viewRetailer.city, viewRetailer.district, viewRetailer.state, viewRetailer.pincode].filter(Boolean).join(', ') || '—' },
+            { key: '11', field: 'Branches', value: viewRetailer.branches ?? '—' },
+            { key: '12', field: 'Status', value: <Tag style={{ margin: 0, padding: '2px 10px' }}>{STATUS_DISPLAY[viewRetailer.status] ?? viewRetailer.status}</Tag> },
+            ...(viewRetailer.status === 'rejected' ? [
+              { key: 'r1', field: 'Reject Reason', value: viewRetailer.rejectedReason || '—' },
+              { key: 'r2', field: 'Rejected At', value: viewRetailer.rejectedAt ? new Date(viewRetailer.rejectedAt).toLocaleString() : '—' },
+            ] : []),
+            { key: '13', field: 'Created By', value: viewRetailer.createdBy || '—' },
+            { key: '14', field: 'Created At', value: viewRetailer.createdAt || '—' },
+          ]
+          return (
+            <Table
+              dataSource={viewRows}
+              columns={[{ title: 'Field', dataIndex: 'field', width: 140, render: (t) => <strong>{t}</strong> }, { title: 'Value', dataIndex: 'value' }]}
+              pagination={false}
+              size="small"
+              showHeader
+            />
+          )
+        })()}
       </Modal>
 
       <Modal
@@ -656,6 +610,7 @@ const CustomerBoard = () => {
           setImportModalVisible(false)
           setImportFile(null)
         }}
+        styles={{ body: { maxHeight: 'none', overflow: 'visible', overflowX: 'hidden' } }}
         footer={[
           <Button key="cancel" onClick={() => { setImportModalVisible(false); setImportFile(null); }}>
             Cancel

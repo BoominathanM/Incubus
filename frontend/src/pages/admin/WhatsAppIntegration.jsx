@@ -17,6 +17,7 @@ import {
   Divider,
   Spin,
   Alert,
+  Dropdown,
 } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -32,6 +33,7 @@ import {
   DeleteOutlined,
   EyeOutlined,
   ThunderboltOutlined,
+  MoreOutlined,
 } from '@ant-design/icons'
 import Breadcrumbs from '../../components/Breadcrumbs'
 import {
@@ -193,21 +195,28 @@ const WhatsAppIntegration = () => {
     {
       title: 'Actions',
       key: 'actions',
-      render: (_, record) => (
-        <Button
-          type="primary"
-          size="small"
-          onClick={() => {
-            setSelectedTemplate(record)
-            setEditingMappingId(null)
-            eventForm.resetFields()
-            setVariableMappings(buildVariableMappingsFromTemplate(record))
-            setEventModalVisible(true)
-          }}
-        >
-          Map Events
-        </Button>
-      ),
+      width: 72,
+      render: (_, record) => {
+        const menuItems = [
+          {
+            key: 'mapEvents',
+            icon: <ThunderboltOutlined />,
+            label: 'Map Events',
+            onClick: () => {
+              setSelectedTemplate(record)
+              setEditingMappingId(null)
+              eventForm.resetFields()
+              setVariableMappings(buildVariableMappingsFromTemplate(record))
+              setEventModalVisible(true)
+            },
+          },
+        ]
+        return (
+          <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight">
+            <Button type="text" icon={<MoreOutlined />} />
+          </Dropdown>
+        )
+      },
     },
     {
       title: 'Last Synced',
@@ -247,12 +256,14 @@ const WhatsAppIntegration = () => {
     {
       title: 'Actions',
       key: 'actions',
-      render: (_, record) => (
-        <Space>
-          <Button
-            type="primary"
-            icon={<EditOutlined />}
-            onClick={() => {
+      width: 72,
+      render: (_, record) => {
+        const menuItems = [
+          {
+            key: 'edit',
+            icon: <EditOutlined />,
+            label: 'Edit',
+            onClick: () => {
               setEditingMappingId(record._id)
               const raw = mappingsRes?.data?.mappings?.find((m) => m._id === record._id)
               const templateId = raw?.templateId?._id || raw?.templateId
@@ -274,14 +285,14 @@ const WhatsAppIntegration = () => {
                     }))
               )
               setEventModalVisible(true)
-            }}
-          >
-            Edit
-          </Button>
-          <Button
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => {
+            },
+          },
+          {
+            key: 'delete',
+            icon: <DeleteOutlined />,
+            label: 'Delete',
+            danger: true,
+            onClick: () => {
               Modal.confirm({
                 title: 'Delete Event Mapping',
                 content: 'Are you sure you want to delete this event mapping?',
@@ -294,12 +305,15 @@ const WhatsAppIntegration = () => {
                   }
                 },
               })
-            }}
-          >
-            Delete
-          </Button>
-        </Space>
-      ),
+            },
+          },
+        ]
+        return (
+          <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight">
+            <Button type="text" icon={<MoreOutlined />} />
+          </Dropdown>
+        )
+      },
     },
   ]
 
@@ -754,6 +768,7 @@ const WhatsAppIntegration = () => {
         width={800}
         okText="Save"
         confirmLoading={saveMappingLoading}
+        styles={{ body: { maxHeight: '70vh', overflowY: 'auto' } }}
       >
         <Form form={eventForm} layout="vertical">
           <Form.Item
@@ -874,6 +889,7 @@ const WhatsAppIntegration = () => {
         onOk={confirmDisconnect}
         onCancel={() => setDisconnectModalVisible(false)}
         okButtonProps={{ danger: true }}
+        styles={{ body: { maxHeight: '70vh', overflowY: 'auto' } }}
       >
         <Text>Are you sure you want to disconnect this integration? All configuration will be lost.</Text>
       </Modal>

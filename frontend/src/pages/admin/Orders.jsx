@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Tabs, Table, Tag, Button, Space, Input, Select, Typography, Modal, Form, InputNumber, DatePicker, message } from 'antd'
+import { Tabs, Table, Tag, Button, Space, Input, Select, Typography, Modal, Form, InputNumber, DatePicker, message, Dropdown } from 'antd'
 import Breadcrumbs from '../../components/Breadcrumbs'
 import {
   SearchOutlined,
   EyeOutlined,
   EditOutlined,
   ExportOutlined,
+  MoreOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 
@@ -133,31 +134,18 @@ const AdminOrders = () => {
     {
       title: 'Actions',
       key: 'actions',
-      render: (_, record) => (
-        <Space>
-          <Button
-            icon={<EyeOutlined />}
-            onClick={(e) => {
-              e.stopPropagation()
-              navigate(`/admin/orders/${record.orderId}`)
-            }}
-          >
-            View
-          </Button>
-          <Button
-            type="primary"
-            icon={<EditOutlined />}
-            onClick={(e) => {
-              e.stopPropagation()
-              setSelectedOrder(record)
-              form.setFieldsValue(record)
-              setUpdateModalVisible(true)
-            }}
-          >
-            Update
-          </Button>
-        </Space>
-      ),
+      width: 72,
+      render: (_, record) => {
+        const menuItems = [
+          { key: 'view', icon: <EyeOutlined />, label: 'View', onClick: () => navigate(`/admin/orders/${record.orderId}`) },
+          { key: 'update', icon: <EditOutlined />, label: 'Update', onClick: () => { setSelectedOrder(record); form.setFieldsValue(record); setUpdateModalVisible(true) } },
+        ]
+        return (
+          <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight" onClick={(e) => e.stopPropagation()}>
+            <Button type="text" icon={<MoreOutlined />} />
+          </Dropdown>
+        )
+      },
     },
   ]
 
@@ -338,30 +326,23 @@ const AdminOrders = () => {
         onCancel={() => setDetailModalVisible(false)}
         footer={null}
         width={800}
+        styles={{ body: { maxHeight: '70vh', overflowY: 'auto' } }}
       >
         {selectedOrder && (
-          <div>
-            <Space direction="vertical" style={{ width: '100%' }} size="large">
-              <div>
-                <strong>Order ID:</strong> {selectedOrder.orderId}
-              </div>
-              <div>
-                <strong>Name:</strong> {selectedOrder.name}
-              </div>
-              <div>
-                <strong>Type:</strong> {selectedOrder.isReseller ? 'Retailer' : 'End User'}
-              </div>
-              <div>
-                <strong>Amount:</strong> ₹{selectedOrder.amount}
-              </div>
-              <div>
-                <strong>Payment Mode:</strong> {selectedOrder.paymentMode}
-              </div>
-              <div>
-                <strong>Invoice Number:</strong> {selectedOrder.invoiceNumber || '-'}
-              </div>
-            </Space>
-          </div>
+          <Table
+            dataSource={[
+              { key: '1', field: 'Order ID', value: selectedOrder.orderId },
+              { key: '2', field: 'Name', value: selectedOrder.name },
+              { key: '3', field: 'Type', value: selectedOrder.isReseller ? 'Retailer' : 'End User' },
+              { key: '4', field: 'Amount', value: `₹${selectedOrder.amount}` },
+              { key: '5', field: 'Payment Mode', value: selectedOrder.paymentMode },
+              { key: '6', field: 'Invoice Number', value: selectedOrder.invoiceNumber || '—' },
+            ]}
+            columns={[{ title: 'Field', dataIndex: 'field', width: 160, render: (t) => <strong>{t}</strong> }, { title: 'Value', dataIndex: 'value' }]}
+            pagination={false}
+            size="small"
+            showHeader
+          />
         )}
       </Modal>
 
@@ -375,6 +356,7 @@ const AdminOrders = () => {
         }}
         onCancel={() => setUpdateModalVisible(false)}
         width={600}
+        styles={{ body: { maxHeight: '70vh', overflowY: 'auto' } }}
       >
         <Form form={form} layout="vertical">
           <Form.Item name="billingStatus" label="Billing Status">
