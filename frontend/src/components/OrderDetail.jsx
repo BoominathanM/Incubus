@@ -541,6 +541,7 @@ const OrderDetail = ({ basePath = '/admin' }) => {
         onOk={handleUpdateSubmit}
         onCancel={() => { setUpdateModalVisible(false); form.resetFields(); setDeliverySubModal(null) }}
         width={600}
+        styles={{ body: { maxHeight: '70vh', overflowY: 'auto' } }}
       >
         <Form form={form} layout="vertical">{renderModalContent()}</Form>
       </Modal>
@@ -556,6 +557,7 @@ const OrderDetail = ({ basePath = '/admin' }) => {
         onOk={() => { deliverySubForm.validateFields().then(() => { message.success('Dispatch details updated'); setDeliverySubModal(null); deliverySubForm.resetFields() }) }}
         onCancel={() => { setDeliverySubModal(null); deliverySubForm.resetFields() }}
         width={440}
+        styles={{ body: { maxHeight: '70vh', overflowY: 'auto' } }}
       >
         <Form form={deliverySubForm} layout="vertical">
           <Form.Item name="subCourier" label="Courier"><Input placeholder="Enter courier name" /></Form.Item>
@@ -574,6 +576,7 @@ const OrderDetail = ({ basePath = '/admin' }) => {
         onOk={() => { deliverySubForm.validateFields().then(() => { message.success('Delivery details updated'); setDeliverySubModal(null); deliverySubForm.resetFields() }) }}
         onCancel={() => { setDeliverySubModal(null); deliverySubForm.resetFields() }}
         width={440}
+        styles={{ body: { maxHeight: '70vh', overflowY: 'auto' } }}
       >
         <Form form={deliverySubForm} layout="vertical">
           <Form.Item name="subDeliveryStatus" label="Delivery Status">

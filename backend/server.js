@@ -9,6 +9,7 @@ const userRoutes = require('./routes/users')
 const countryCodesRoutes = require('./routes/countryCodes')
 const askevaRoutes = require('./routes/askeva')
 const askevaController = require('./controllers/askevaController')
+const retailerRoutes = require('./routes/retailers')
 
 const app = express()
 const PORT = process.env.PORT || 7000
@@ -31,6 +32,7 @@ app.use('/api/users', userRoutes)
 app.use('/api/country-codes', countryCodesRoutes)
 app.use('/api/askeva', askevaRoutes)
 app.post('/api/askeva/webhook/:companyId', askevaController.handleWebhook)
+app.use('/api/retailers', retailerRoutes)
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true })

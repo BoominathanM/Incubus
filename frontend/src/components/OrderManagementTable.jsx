@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, Table, Tag, Button, Space, message, Input, DatePicker } from 'antd'
-import { EyeOutlined, ExportOutlined, SearchOutlined } from '@ant-design/icons'
+import { Card, Table, Tag, Button, Space, message, Input, DatePicker, Dropdown } from 'antd'
+import { EyeOutlined, ExportOutlined, SearchOutlined, MoreOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import './OrderDetail.css'
 
@@ -61,20 +61,17 @@ const OrderManagementTable = ({ detailPathPrefix, dataSource = defaultMockOrders
     {
       title: 'Actions',
       key: 'actions',
-      render: (_, record) => (
-        <Space>
-          <Button
-            type="primary"
-            icon={<EyeOutlined />}
-            onClick={(e) => {
-              e.stopPropagation()
-              navigate(`${detailPath}/${record.orderId}`)
-            }}
-          >
-            View
-          </Button>
-        </Space>
-      ),
+      width: 72,
+      render: (_, record) => {
+        const menuItems = [
+          { key: 'view', icon: <EyeOutlined />, label: 'View', onClick: () => navigate(`${detailPath}/${record.orderId}`) },
+        ]
+        return (
+          <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight" onClick={(e) => e.stopPropagation()}>
+            <Button type="text" icon={<MoreOutlined />} />
+          </Dropdown>
+        )
+      },
     },
   ]
 
