@@ -1,9 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
 import axios from 'axios'
+import { getApiBase } from '../utils/api'
 
 const AuthContext = createContext()
-
-const API_BASE = import.meta.env.VITE_API_URL || ''
 
 export const useAuth = () => {
   const context = useContext(AuthContext)
@@ -70,7 +69,7 @@ export const AuthProvider = ({ children }) => {
       return { success: false, message: 'Email and password are required' }
     }
     try {
-      const { data } = await axios.post(`${API_BASE}/api/auth/login`, {
+      const { data } = await axios.post(`${getApiBase()}/api/auth/login`, {
         email: email.trim().toLowerCase(),
         password,
       })
@@ -95,7 +94,7 @@ export const AuthProvider = ({ children }) => {
     const token = localStorage.getItem('token')
     try {
       if (token) {
-        await axios.post(`${API_BASE}/api/auth/logout`, null, {
+        await axios.post(`${getApiBase()}/api/auth/logout`, null, {
           headers: { Authorization: `Bearer ${token}` },
         })
       }

@@ -31,7 +31,12 @@ export const askevaApi = baseApi.injectEndpoints({
         url: '/api/askeva/disconnect',
         method: 'POST',
       }),
-      invalidatesTags: [{ type: 'AskevaConfig', id: 'CONFIG' }, { type: 'AskevaConfig', id: 'CREDENTIALS' }],
+      invalidatesTags: [
+        { type: 'AskevaConfig', id: 'CONFIG' },
+        { type: 'AskevaConfig', id: 'CREDENTIALS' },
+        { type: 'AskevaTemplates', id: 'LIST' },
+        { type: 'EventMappings', id: 'LIST' },
+      ],
     }),
     syncAskevaTemplates: build.mutation({
       query: () => ({

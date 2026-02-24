@@ -217,7 +217,9 @@ exports.disconnect = async (req, res) => {
   try {
     const companyId = getCompanyId(req)
     await AskevaConfig.deleteOne({ companyId })
-    res.json({ success: true, message: 'ASKEVA disconnected successfully' })
+    await AskevaTemplate.deleteMany({ companyId })
+    await EventTemplateMapping.deleteMany({ companyId })
+    res.json({ success: true, message: 'ASKEVA disconnected successfully. All templates and event mappings have been cleared.' })
   } catch (err) {
     res.status(500).json({
       success: false,

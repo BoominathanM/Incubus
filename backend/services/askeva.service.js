@@ -217,6 +217,30 @@ async function syncTemplates(companyId) {
     return true
   })
 
+
+  function extractVariablePlaceholders(template) {
+    const placeholders = new Set()
+    function scan(obj) {
+      if (!obj) return
+      if (typeof obj === 'string') {
+        const matches = obj.match(/\{\{(\d+)\}\}/g)
+        if (matches) matches.forEach((m) => placeholders.add(parseInt(m.replace(/\D/g, ''), 10)))
+        return
+      }
+      if (Array.isArray(obj)) {
+        obj.forEach(scan)
+        return
+      }
+      if (typeof obj === 'object') {
+        Object.values(obj).forEach(scan)
+      }
+    }
+    scan(template)
+    return Array.from(placeholders)
+      .sort((a, b) => a - b)
+      .map((n) => `{{${n}}}`)
+  }
+
   const now = new Date()
   let synced = 0
   for (const t of allTemplates) {
@@ -229,6 +253,8 @@ async function syncTemplates(companyId) {
     const compNames = Array.isArray(components)
       ? components.map((c) => (typeof c === 'string' ? c : c.type || c.name)).filter(Boolean)
       : []
+    const variablePlaceholders = extractVariablePlaceholders(t)
+    const componentsDetail = Array.isArray(components) && components.length > 0 ? components : null
 
     await AskevaTemplate.findOneAndUpdate(
       { companyId, templateId: id },
@@ -240,6 +266,8 @@ async function syncTemplates(companyId) {
         category,
         status,
         components: compNames.length ? compNames : [].concat(components || []),
+        componentsDetail,
+        variablePlaceholders,
         lastSyncedAt: now,
       },
       { upsert: true, new: true }

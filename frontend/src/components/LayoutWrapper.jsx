@@ -17,9 +17,8 @@ import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { useUpdateUserMutation } from '../store/api/userApi'
 import axios from 'axios'
+import { getApiBase } from '../utils/api'
 import './LayoutWrapper.css'
-
-const API_BASE = import.meta.env.VITE_API_URL || ''
 
 const ROLE_LABELS = {
   superadmin: 'Super Admin',
@@ -125,7 +124,7 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
       } else {
         const token = localStorage.getItem('token')
         await axios.post(
-          `${API_BASE}/api/auth/change-password`,
+          `${getApiBase()}/api/auth/change-password`,
           {
             currentPassword: values.currentPassword,
             newPassword: values.newPassword,

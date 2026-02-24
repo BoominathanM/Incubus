@@ -9,6 +9,8 @@ const askevaTemplateSchema = new mongoose.Schema(
     category: { type: String, default: 'MARKETING' },
     status: { type: String, default: 'APPROVED' },
     components: { type: mongoose.Schema.Types.Mixed, default: [] },
+    componentsDetail: { type: mongoose.Schema.Types.Mixed, default: null },
+    variablePlaceholders: [{ type: String }],
     mappedEventTypes: [{ type: String }],
     lastSyncedAt: { type: Date, default: Date.now },
   },

@@ -36,6 +36,7 @@ import {
 import Breadcrumbs from '../../components/Breadcrumbs'
 import {
   useGetAskevaConfigQuery,
+  useGetAskevaCredentialsQuery,
   useSaveAskevaConfigMutation,
   useTestAskevaConnectionMutation,
   useDisconnectAskevaMutation,
@@ -79,6 +80,7 @@ const WhatsAppIntegration = () => {
   const [templatePageSize, setTemplatePageSize] = useState(10)
 
   const { data: configRes, isLoading: configLoading } = useGetAskevaConfigQuery()
+  const { data: credentialsRes } = useGetAskevaCredentialsQuery(undefined, { skip: !editConfigMode })
   const [saveConfig, { isLoading: saveConfigLoading }] = useSaveAskevaConfigMutation()
   const [testConnection, { isLoading: testLoading }] = useTestAskevaConnectionMutation()
   const [disconnect, { isLoading: disconnectLoading }] = useDisconnectAskevaMutation()
@@ -128,6 +130,16 @@ const WhatsAppIntegration = () => {
     }
   }, [isConfigured, config, form])
 
+  useEffect(() => {
+    const cred = credentialsRes?.data
+    if (editConfigMode && cred) {
+      form.setFieldsValue({
+        apiKey: cred.apiKey ?? '',
+        backendUrl: cred.backendUrl || DEFAULT_BACKEND_URL,
+      })
+    }
+  }, [editConfigMode, credentialsRes?.data?.apiKey, credentialsRes?.data?.backendUrl, form])
+
   const lastSyncedAt = config?.lastSyncedAt
     ? new Date(config.lastSyncedAt).toLocaleString()
     : null
@@ -144,7 +156,9 @@ const WhatsAppIntegration = () => {
       key: 'components',
       render: (comp) => (
         <Text style={{ color: '#15B9A4' }}>
-          {Array.isArray(comp) ? comp.join(' ') : (comp || '—')}
+          {Array.isArray(comp)
+            ? comp.map((c) => (typeof c === 'object' ? c?.type || c?.name : c)).filter(Boolean).join(' ') || '—'
+            : (comp || '—')}
         </Text>
       ),
     },
@@ -187,18 +201,7 @@ const WhatsAppIntegration = () => {
             setSelectedTemplate(record)
             setEditingMappingId(null)
             eventForm.resetFields()
-            setVariableMappings(
-              (record.components || []).length
-                ? (Array.isArray(record.components) ? record.components : [record.components])
-                    .slice(0, 5)
-                    .map((_, i) => ({
-                      templateVariable: `{{${i + 1}}}`,
-                      hrmsField: '',
-                      defaultValue: '',
-                      mapped: false,
-                    }))
-                : [{ templateVariable: '{{1}}', hrmsField: '', defaultValue: '', mapped: false }]
-            )
+            setVariableMappings(buildVariableMappingsFromTemplate(record))
             setEventModalVisible(true)
           }}
         >
@@ -252,23 +255,23 @@ const WhatsAppIntegration = () => {
             onClick={() => {
               setEditingMappingId(record._id)
               const raw = mappingsRes?.data?.mappings?.find((m) => m._id === record._id)
+              const templateId = raw?.templateId?._id || raw?.templateId
+              const fullTemplate = templates.find((t) => t._id === templateId)
               eventForm.setFieldsValue({
                 hrmsEventType: record.eventType,
-                templateId: raw?.templateId?._id || raw?.templateId,
+                templateId,
                 status: record.status,
               })
-              setSelectedTemplate(
-                raw?.templateId
-                  ? { _id: raw.templateId._id, templateName: raw.templateId.templateName, language: raw.templateId.language }
-                  : null
-              )
+              setSelectedTemplate(fullTemplate || null)
               setVariableMappings(
-                (raw?.variables || []).map((v) => ({
-                  templateVariable: v.templateVariable,
-                  hrmsField: v.hrmsField,
-                  defaultValue: v.defaultValue || '',
-                  mapped: true,
-                }))
+                fullTemplate
+                  ? buildVariableMappingsFromTemplate(fullTemplate, raw?.variables || [])
+                  : (raw?.variables || []).map((v) => ({
+                      templateVariable: v.templateVariable,
+                      hrmsField: v.hrmsField,
+                      defaultValue: v.defaultValue || '',
+                      mapped: true,
+                    }))
               )
               setEventModalVisible(true)
             }}
@@ -390,25 +393,30 @@ const WhatsAppIntegration = () => {
     }
   }
 
+  /** Build variable rows strictly from template's variablePlaceholders ({{1}}, {{2}}, ...). */
+  const buildVariableMappingsFromTemplate = (template, savedVariables = []) => {
+    if (!template) return []
+    const placeholders = template.variablePlaceholders
+    if (!Array.isArray(placeholders) || placeholders.length === 0) return []
+    const savedByVar = (savedVariables || []).reduce((acc, v) => {
+      acc[v.templateVariable] = v
+      return acc
+    }, {})
+    return placeholders.map((pv) => {
+      const saved = savedByVar[pv]
+      return {
+        templateVariable: pv,
+        hrmsField: saved?.hrmsField ?? '',
+        defaultValue: saved?.defaultValue ?? '',
+        mapped: !!saved?.hrmsField,
+      }
+    })
+  }
+
   const handleTemplateSelect = (templateId) => {
     const template = templates.find((t) => t._id === templateId)
     setSelectedTemplate(template || null)
-    if (template) {
-      const comps = template.components
-      const arr = Array.isArray(comps) ? comps : comps ? [comps] : []
-      setVariableMappings(
-        arr.length
-          ? arr.slice(0, 5).map((_, i) => ({
-              templateVariable: `{{${i + 1}}}`,
-              hrmsField: '',
-              defaultValue: '',
-              mapped: false,
-            }))
-          : [{ templateVariable: '{{1}}', hrmsField: '', defaultValue: '', mapped: false }]
-      )
-    } else {
-      setVariableMappings([])
-    }
+    setVariableMappings(template ? buildVariableMappingsFromTemplate(template) : [])
   }
 
   const handleAddVariableMapping = () => {
@@ -506,10 +514,7 @@ const WhatsAppIntegration = () => {
                     </Button>
                     <Button
                       icon={<EditOutlined />}
-                      onClick={() => {
-                        setEditConfigMode(true)
-                        form.setFieldsValue({ apiKey: '' })
-                      }}
+                      onClick={() => setEditConfigMode(true)}
                     >
                       Edit configuration
                     </Button>
@@ -783,6 +788,11 @@ const WhatsAppIntegration = () => {
           </Form.Item>
           <Divider />
           <Title level={5}>Variable Mapping</Title>
+          {selectedTemplate?.variablePlaceholders?.length > 0 && (
+            <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+              Variable fields below are based on the selected template (synced from WhatsApp).
+            </Text>
+          )}
           {selectedTemplate ? (
             <div>
               {variableMappings.length > 0 ? (
@@ -790,7 +800,7 @@ const WhatsAppIntegration = () => {
                   <div style={{ padding: '12px', background: '#f6ffed', borderRadius: '4px', marginBottom: 16 }}>
                     <Space>
                       <CheckCircleOutlined style={{ color: '#52c41a' }} />
-                      <Text>Template has {variableMappings.length} variable(s). Map each to a field.</Text>
+                      <Text>This template has {variableMappings.length} variable(s). Map each to a field below.</Text>
                     </Space>
                     <div style={{ marginTop: 8 }}>
                       {variableMappings.map((vm, idx) => (
@@ -829,21 +839,25 @@ const WhatsAppIntegration = () => {
                             }}
                           />
                         </Form.Item>
-                        <Button danger size="small" onClick={() => handleRemoveVariableMapping(index)}>
-                          Remove
-                        </Button>
+                        {!selectedTemplate?.variablePlaceholders?.length && (
+                          <Button danger size="small" onClick={() => handleRemoveVariableMapping(index)}>
+                            Remove
+                          </Button>
+                        )}
                       </Space>
                     </Card>
                   ))}
                 </>
               ) : (
                 <div style={{ padding: '24px', background: '#e6f7ff', borderRadius: '4px', textAlign: 'center', marginBottom: 16 }}>
-                  <Text type="secondary">This template has no variables, or add one below.</Text>
+                  <Text type="secondary">This template has no variables.</Text>
                 </div>
               )}
-              <Button type="dashed" icon={<PlusOutlined />} onClick={handleAddVariableMapping} style={{ width: '100%' }}>
-                Add Variable Mapping
-              </Button>
+              {(!selectedTemplate?.variablePlaceholders?.length || variableMappings.length === 0) && (
+                <Button type="dashed" icon={<PlusOutlined />} onClick={handleAddVariableMapping} style={{ width: '100%' }}>
+                  Add Variable Mapping
+                </Button>
+              )}
             </div>
           ) : (
             <div style={{ padding: '24px', background: '#e6f7ff', borderRadius: '4px', textAlign: 'center' }}>

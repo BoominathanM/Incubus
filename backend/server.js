@@ -1,4 +1,5 @@
 require('dotenv').config()
+console.log('Starting server...')
 const express = require('express')
 const cors = require('cors')
 const connectDB = require('./config/db')
@@ -12,7 +13,17 @@ const askevaController = require('./controllers/askevaController')
 const app = express()
 const PORT = process.env.PORT || 7000
 
-app.use(cors({ origin: true, credentials: true }))
+const allowedOrigins = [
+  'http://localhost:7001',
+  'http://localhost:5173',
+  'http://127.0.0.1:7001',
+  'http://127.0.0.1:5173',
+  'https://incubus.vercel.app',
+]
+const corsOrigin = process.env.FRONTEND_URL
+  ? [process.env.FRONTEND_URL, ...allowedOrigins]
+  : allowedOrigins
+app.use(cors({ origin: corsOrigin, credentials: true }))
 app.use(express.json())
 
 app.use('/api/auth', authRoutes)
