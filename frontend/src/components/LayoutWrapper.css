@@ -66,6 +66,15 @@
   background-color: rgba(21, 185, 164, 0.1) !important;
 }
 
+.layout-wrapper .sidebar .ant-menu-item-selected:hover {
+  background-color: #15B9A4 !important;
+  color: #fff !important;
+}
+
+.layout-wrapper .sidebar .ant-menu-item-selected:hover .anticon {
+  color: #fff !important;
+}
+
 .dark-theme .layout-wrapper .sidebar .ant-menu-item:hover {
   background-color: rgba(21, 185, 164, 0.2) !important;
 }
@@ -86,6 +95,15 @@
 }
 
 .dark-theme .layout-wrapper .sidebar .ant-menu.ant-menu-dark .ant-menu-item-selected .anticon {
+  color: #fff !important;
+}
+
+.dark-theme .layout-wrapper .sidebar .ant-menu.ant-menu-dark .ant-menu-item-selected:hover {
+  background-color: #15B9A4 !important;
+  color: #fff !important;
+}
+
+.dark-theme .layout-wrapper .sidebar .ant-menu.ant-menu-dark .ant-menu-item-selected:hover .anticon {
   color: #fff !important;
 }
 

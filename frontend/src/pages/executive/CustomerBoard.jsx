@@ -268,6 +268,10 @@ const CustomerBoard = () => {
   }
 
   const handleExport = async () => {
+    if (!retailers.length) {
+      message.error('No data to export')
+      return
+    }
     try {
       const blob = await triggerExport(listParams).unwrap()
       downloadExportBlob(blob)

@@ -392,6 +392,9 @@ async function exportRetailers(req, res) {
       CreatedBy: r.createdBy?.name || r.createdBy?.email || '',
       CreatedAt: r.createdAt ? new Date(r.createdAt).toISOString() : '',
     }))
+    if (!rows.length) {
+      return res.status(400).json({ success: false, message: 'No data to export' })
+    }
     const wb = XLSX.utils.book_new()
     const ws = XLSX.utils.json_to_sheet(rows)
     XLSX.utils.book_append_sheet(wb, ws, 'Retailers')

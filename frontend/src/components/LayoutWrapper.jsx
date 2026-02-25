@@ -88,6 +88,7 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
   }
 
   const isAdminOrSuperadmin = user?.role === 'superadmin' || user?.role === 'admin'
+  const userPhone = [user?.mobileCountryCode, user?.mobileNumber].filter(Boolean).join(' ').trim() || user?.phone || user?.mobile || '—'
 
   const userMenuItems = [
     {
@@ -475,6 +476,10 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
             <div style={{ marginTop: '4px', fontSize: '15px', color: isDark ? '#fff' : '#000' }}>
               {user?.role ? ROLE_LABELS[user.role] || user.role : '—'}
             </div>
+          </div>
+          <div>
+            <Text type="secondary" style={{ fontSize: '12px', textTransform: 'uppercase' }}>Phone Number</Text>
+            <div style={{ marginTop: '4px', fontSize: '15px', color: isDark ? '#fff' : '#000' }}>{userPhone}</div>
           </div>
 
           <Divider style={{ margin: '8px 0' }} />
