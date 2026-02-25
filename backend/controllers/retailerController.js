@@ -243,7 +243,7 @@ async function approve(req, res) {
     if (r.status !== 'pending_approval') {
       return res.status(400).json({ success: false, message: 'Retailer is not pending approval' })
     }
-    r.status = 'approved'
+    r.status = 'active'
     r.approvedAt = new Date()
     await r.save()
     let retailer = r.toObject ? r.toObject() : r
@@ -440,11 +440,44 @@ async function importSample(req, res) {
   }
 }
 
+function applyMapping(rawRow, mapping) {
+  if (!mapping || typeof mapping !== 'object') return null
+  const out = {}
+  const rawKeys = Object.keys(rawRow || {}).reduce((acc, k) => { acc[String(k).trim()] = rawRow[k]; return acc }, {})
+  for (const [excelHeader, appField] of Object.entries(mapping)) {
+    if (!appField || appField === '') continue
+    const val = rawKeys[String(excelHeader).trim()]
+    if (val === undefined || val === null) continue
+    const s = typeof val === 'string' ? val.trim() : String(val).trim()
+    if (s === '') continue
+    if (appField === 'branches') {
+      const n = parseInt(s, 10)
+      out[appField] = (Number.isNaN(n) || n < 1) ? 1 : n
+    } else {
+      out[appField] = s
+    }
+  }
+  return out
+}
+
 async function importRetailers(req, res) {
   try {
     if (!req.file || !req.file.buffer) {
       return res.status(400).json({ success: false, message: 'No file uploaded' })
     }
+    let mapping = null
+    const rawBody = req.body && typeof req.body === 'object' ? req.body : {}
+    const mappingRaw = rawBody.mapping
+    if (mappingRaw) {
+      try {
+        mapping = typeof mappingRaw === 'string' ? JSON.parse(mappingRaw) : mappingRaw
+        if (mapping && typeof mapping !== 'object') mapping = null
+        if (mapping && Object.keys(mapping).length === 0) mapping = null
+      } catch (_) {
+        return res.status(400).json({ success: false, message: 'Invalid mapping JSON' })
+      }
+    }
+
     const wb = XLSX.read(req.file.buffer, { type: 'buffer' })
     const firstSheet = wb.SheetNames[0]
     const ws = wb.Sheets[firstSheet]
@@ -456,7 +489,15 @@ async function importRetailers(req, res) {
     const seenEmail = new Set()
 
     for (let i = 0; i < raw.length; i++) {
-      const row = normalizeRow(raw[i])
+      let row = mapping ? applyMapping(raw[i], mapping) : normalizeRow(raw[i])
+      if (mapping && row) {
+        const trimmed = {}
+        for (const [k, v] of Object.entries(row)) {
+          if (v != null && ALLOWED_IMPORT_COLUMNS.has(k)) trimmed[k] = k === 'branches' ? (Number(v) || 1) : String(v).trim()
+        }
+        row = trimmed
+      }
+      if (!row || Object.keys(row).length === 0) continue
       const missing = MANDATORY_IMPORT_COLUMNS.filter((col) => !(row[col] != null && String(row[col]).trim() !== ''))
       if (missing.length) {
         errors.push({ row: i + 2, message: `Missing mandatory: ${missing.join(', ')}` })
@@ -497,7 +538,7 @@ async function importRetailers(req, res) {
         businessName: trim(row.businessName),
         storeName: trim(row.storeName) || '',
         contactPerson: trim(row.contactPerson),
-        email: trim(row.email).toLowerCase() || '',
+        email: (trim(row.email) || '').toLowerCase(),
         whatsappCountryCode: trim(row.whatsappCountryCode) || '+91',
         whatsappNumber: trim(row.whatsappNumber),
         altContactCountryCode: trim(row.altContactCountryCode) || '',
@@ -512,7 +553,7 @@ async function importRetailers(req, res) {
         pincode: trim(row.pincode),
         branches: Number.isNaN(parseInt(row.branches, 10)) ? 1 : Math.max(1, parseInt(row.branches, 10)),
         status: 'pending_approval',
-        createdBy: createdBy || undefined,
+        createdBy: createdBy ? (mongoose.Types.ObjectId.isValid(createdBy) ? new mongoose.Types.ObjectId(createdBy) : undefined) : undefined,
       }
       const created = await Retailer.create(doc)
       inserted.push(created._id)
@@ -524,8 +565,9 @@ async function importRetailers(req, res) {
       errors: errors.length ? errors : undefined,
     })
   } catch (err) {
-    console.error(err)
-    return res.status(500).json({ success: false, message: err.message || 'Import failed' })
+    console.error('Import error:', err)
+    const msg = err.message || 'Import failed'
+    return res.status(500).json({ success: false, message: msg })
   }
 }
 
