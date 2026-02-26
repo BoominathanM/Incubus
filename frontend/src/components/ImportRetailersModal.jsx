@@ -18,25 +18,92 @@ const MANDATORY_FIELDS = [
 ]
 
 const APP_FIELD_OPTIONS = [
-  { value: '', label: "Don't import" },
-  { value: 'businessName', label: 'Business Name (required)' },
+  { value: 'businessName', label: <>Business Name <span style={{ color: '#ff4d4f' }}>*</span></> },
   { value: 'storeName', label: 'Store Name' },
-  { value: 'contactPerson', label: 'Contact Person (required)' },
-  { value: 'whatsappCountryCode', label: 'WhatsApp Country Code (required)' },
-  { value: 'whatsappNumber', label: 'WhatsApp Number (required)' },
+  { value: 'contactPerson', label: <>Contact Person <span style={{ color: '#ff4d4f' }}>*</span></> },
+  { value: 'whatsappCountryCode', label: <>WhatsApp Country Code <span style={{ color: '#ff4d4f' }}>*</span></> },
+  { value: 'whatsappNumber', label: <>WhatsApp Number <span style={{ color: '#ff4d4f' }}>*</span></> },
   { value: 'email', label: 'Email' },
-  { value: 'gst', label: 'GST Number (required)' },
-  { value: 'pan', label: 'PAN Number (required)' },
-  { value: 'street1', label: 'Street 1 (required)' },
+  { value: 'gst', label: <>GST Number <span style={{ color: '#ff4d4f' }}>*</span></> },
+  { value: 'pan', label: <>PAN Number <span style={{ color: '#ff4d4f' }}>*</span></> },
+  { value: 'street1', label: <>Street 1 <span style={{ color: '#ff4d4f' }}>*</span></> },
   { value: 'street2', label: 'Street 2' },
-  { value: 'city', label: 'City (required)' },
-  { value: 'district', label: 'District (required)' },
-  { value: 'state', label: 'State (required)' },
-  { value: 'pincode', label: 'Pincode (required)' },
+  { value: 'city', label: <>City <span style={{ color: '#ff4d4f' }}>*</span></> },
+  { value: 'district', label: <>District <span style={{ color: '#ff4d4f' }}>*</span></> },
+  { value: 'state', label: <>State <span style={{ color: '#ff4d4f' }}>*</span></> },
+  { value: 'pincode', label: <>Pincode <span style={{ color: '#ff4d4f' }}>*</span></> },
   { value: 'branches', label: 'Branches' },
   { value: 'altContactCountryCode', label: 'Alt Contact Country Code' },
   { value: 'altContactNumber', label: 'Alt Contact Number' },
 ]
+
+const FIELD_LABELS = {
+  businessName: 'Business Name',
+  contactPerson: 'Contact Person',
+  whatsappCountryCode: 'WhatsApp Country Code',
+  whatsappNumber: 'WhatsApp Number',
+  gst: 'GST Number',
+  pan: 'PAN Number',
+  street1: 'Street 1',
+  city: 'City',
+  district: 'District',
+  state: 'State',
+  pincode: 'Pincode',
+}
+
+const MANDATORY_SOURCE_HEADERS = new Set([
+  'businessname',
+  'contactperson',
+  'whatsappcountrycode',
+  'whatsappnumber',
+  'gst',
+  'pan',
+  'street1',
+  'city',
+  'district',
+  'state',
+  'pincode',
+])
+
+function canonicalHeader(value) {
+  return String(value || '').replace(/[^a-z0-9]/gi, '').toLowerCase()
+}
+
+const AUTO_MANAGED_SOURCE_HEADERS = new Set([
+  'status',
+  'createdby',
+  'createdat',
+])
+
+const AUTO_FIELD_BY_HEADER = {
+  businessname: 'businessName',
+  storename: 'storeName',
+  contactperson: 'contactPerson',
+  whatsappcountrycode: 'whatsappCountryCode',
+  whatsappnumber: 'whatsappNumber',
+  email: 'email',
+  emailid: 'email',
+  emailaddress: 'email',
+  gst: 'gst',
+  gstnumber: 'gst',
+  gstno: 'gst',
+  pan: 'pan',
+  pannumber: 'pan',
+  panno: 'pan',
+  street1: 'street1',
+  street2: 'street2',
+  city: 'city',
+  district: 'district',
+  state: 'state',
+  pincode: 'pincode',
+  branches: 'branches',
+  altcontactcountrycode: 'altContactCountryCode',
+  altcontactnumber: 'altContactNumber',
+}
+
+function inferFieldFromHeader(header) {
+  return AUTO_FIELD_BY_HEADER[canonicalHeader(header)] || ''
+}
 
 function getHeadersFromFile(file) {
   return new Promise((resolve, reject) => {
@@ -48,7 +115,13 @@ function getHeadersFromFile(file) {
         const firstSheet = wb.SheetNames[0]
         const ws = wb.Sheets[firstSheet]
         const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
-        const headers = (raw[0] || []).map((h) => String(h || '').trim()).filter(Boolean)
+        const headerRow = (raw || []).find((row) =>
+          Array.isArray(row) && row.some((cell) => String(cell || '').trim() !== '')
+        ) || []
+        const headers = headerRow
+          .map((h) => String(h || '').trim())
+          .filter(Boolean)
+          .filter((h) => !AUTO_MANAGED_SOURCE_HEADERS.has(canonicalHeader(h)))
         resolve(headers)
       } catch (err) {
         reject(err)
@@ -99,11 +172,11 @@ export default function ImportRetailersModal({
     try {
       const h = await getHeadersFromFile(file)
       if (!h.length) {
-        message.warning('No headers found in the first row')
+        message.warning('No usable headers found in the file')
         return false
       }
       setHeaders(h)
-      setColumnMapping({})
+      setColumnMapping(buildAutoMapping(h))
       setStep('mapping')
     } catch (e) {
       message.error(e?.message || 'Failed to read file headers')
@@ -122,6 +195,18 @@ export default function ImportRetailersModal({
     })
   }
 
+  const buildAutoMapping = useCallback((fileHeaders) => {
+    const next = {}
+    const used = new Set()
+    fileHeaders.forEach((h) => {
+      const inferred = inferFieldFromHeader(h)
+      if (!inferred || used.has(inferred)) return
+      next[h] = inferred
+      used.add(inferred)
+    })
+    return next
+  }, [])
+
   const getMappingForSubmit = () => {
     const mapping = {}
     headers.forEach((h) => {
@@ -136,7 +221,7 @@ export default function ImportRetailersModal({
     const mappedFields = new Set(Object.values(mapping))
     const missing = MANDATORY_FIELDS.filter((f) => !mappedFields.has(f))
     if (missing.length) {
-      const labels = missing.map((f) => APP_FIELD_OPTIONS.find((o) => o.value === f)?.label || f).join(', ')
+      const labels = missing.map((f) => FIELD_LABELS[f] || f).join(', ')
       message.warning(`Map all mandatory fields: ${labels}`)
       return false
     }
@@ -176,8 +261,7 @@ export default function ImportRetailersModal({
       }
       if (result.errors?.length) console.warn('Import errors:', result.errors)
     } catch (e) {
-      const errMsg = e?.data?.message || e?.data?.error || e?.message || 'Import failed'
-      message.error(errMsg)
+      message.error('Import failed. Please verify mapping and data, then try again.')
       console.error('Import error:', e?.data || e)
     } finally {
       setImporting(false)
@@ -189,7 +273,7 @@ export default function ImportRetailersModal({
   const mappingDataSource = headers.map((h) => ({
     key: h,
     excelColumn: h,
-    mapTo: columnMapping[h] ?? '',
+    mapTo: columnMapping[h],
   }))
 
   const footer = [
@@ -253,14 +337,28 @@ export default function ImportRetailersModal({
           <Table
             dataSource={mappingDataSource}
             columns={[
-              { title: 'Column in your file', dataIndex: 'excelColumn', key: 'excelColumn', width: 200, render: (t) => <strong>{t}</strong> },
+              {
+                title: 'Column in your file',
+                dataIndex: 'excelColumn',
+                key: 'excelColumn',
+                width: 200,
+                render: (t) => {
+                  const isMandatory = MANDATORY_SOURCE_HEADERS.has(canonicalHeader(t))
+                  return (
+                    <strong>
+                      {t}
+                      {isMandatory ? <span style={{ color: '#ff4d4f' }}> *</span> : null}
+                    </strong>
+                  )
+                },
+              },
               {
                 title: 'Map to field',
                 dataIndex: 'mapTo',
                 key: 'mapTo',
                 render: (_, record) => (
                   <Select
-                    value={columnMapping[record.excelColumn] ?? ''}
+                    value={columnMapping[record.excelColumn]}
                     onChange={(v) => setMappingForHeader(record.excelColumn, v)}
                     options={APP_FIELD_OPTIONS}
                     placeholder="Select field"

@@ -19,6 +19,7 @@ const MANDATORY_IMPORT_COLUMNS = [
 ]
 const ALLOWED_IMPORT_COLUMNS = new Set([
   ...MANDATORY_IMPORT_COLUMNS,
+  'storeName',
   'email',
   'street2',
   'branches',
@@ -51,6 +52,8 @@ function normalizeRow(row) {
     pannumber: 'pan',
     panno: 'pan',
     email: 'email',
+    emailid: 'email',
+    emailaddress: 'email',
   }
   for (const [k, v] of Object.entries(row)) {
     const key = String(k || '').trim()
@@ -497,7 +500,12 @@ async function importRetailers(req, res) {
     const seenEmail = new Set()
 
     for (let i = 0; i < raw.length; i++) {
-      let row = mapping ? applyMapping(raw[i], mapping) : normalizeRow(raw[i])
+      let row = null
+      if (mapping) {
+        row = { ...normalizeRow(raw[i]), ...(applyMapping(raw[i], mapping) || {}) }
+      } else {
+        row = normalizeRow(raw[i])
+      }
       if (mapping && row) {
         const trimmed = {}
         for (const [k, v] of Object.entries(row)) {
