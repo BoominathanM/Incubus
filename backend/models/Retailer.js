@@ -4,6 +4,7 @@ const ALLOWED_STATUS = ['pending_approval', 'approved', 'rejected', 'active', 'd
 
 const retailerSchema = new mongoose.Schema(
   {
+    retailerId: { type: String, trim: true },
     businessName: { type: String, required: true },
     storeName: { type: String, default: '' },
     contactPerson: { type: String, required: true },
@@ -36,6 +37,7 @@ retailerSchema.index({ status: 1 })
 retailerSchema.index({ createdBy: 1, status: 1 })
 retailerSchema.index({ email: 1 })
 retailerSchema.index({ whatsappCountryCode: 1, whatsappNumber: 1 })
+retailerSchema.index({ retailerId: 1 }, { unique: true, sparse: true })
 
 module.exports = mongoose.model('Retailer', retailerSchema)
 module.exports.ALLOWED_STATUS = ALLOWED_STATUS

@@ -82,6 +82,7 @@ const CustomerBoard = () => {
   const isOwn = (record) => user?._id && record.createdById === user._id
 
   const requestColumns = [
+    { title: 'Retailer ID', dataIndex: 'retailerId', key: 'retailerId', render: (v) => v || '-' },
     { title: 'Business Name', dataIndex: 'businessName', key: 'businessName' },
     { title: 'Store Name', dataIndex: 'storeName', key: 'storeName', render: (v) => v || '—' },
     { title: 'Contact Person', dataIndex: 'contactPerson', key: 'contactPerson' },
@@ -466,7 +467,7 @@ const CustomerBoard = () => {
         <Title level={2}>Customer Board</Title>
         <Space wrap>
           <Input
-            placeholder="Search by Business Name, Store, Contact, GST"
+            placeholder="Search by Retailer ID, Business Name, Store, Contact, GST"
             prefix={<SearchOutlined />}
             style={{ width: 280 }}
             value={searchText}
@@ -547,6 +548,7 @@ const CustomerBoard = () => {
       >
         {viewRetailer && (() => {
           const viewRows = [
+            { key: '0', field: 'Retailer ID', value: viewRetailer.retailerId || '-' },
             { key: '1', field: 'Business Name', value: viewRetailer.businessName },
             { key: '2', field: 'Store Name', value: viewRetailer.storeName || '—' },
             { key: '3', field: 'Contact Person', value: viewRetailer.contactPerson },

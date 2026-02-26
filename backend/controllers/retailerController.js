@@ -1,6 +1,7 @@
 const mongoose = require('mongoose')
 const Retailer = require('../models/Retailer')
 const { validateFileType, uploadToCloudinary } = require('../utils/uploadCloudinary')
+const { generateRetailerId } = require('../utils/retailerId')
 const XLSX = require('xlsx')
 
 const MANDATORY_IMPORT_COLUMNS = [
@@ -93,6 +94,7 @@ async function list(req, res) {
       const s = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
       const regex = new RegExp(s, 'i')
       query.$or = [
+        { retailerId: regex },
         { businessName: regex },
         { storeName: regex },
         { contactPerson: regex },
@@ -164,6 +166,7 @@ async function create(req, res) {
     if (req.user?.role && ['admin', 'superadmin', 'executive'].includes(req.user.role)) {
       body.createdBy = req.user.id
     }
+    body.retailerId = await generateRetailerId()
     if (!body.status) body.status = 'pending_approval'
     const retailer = await Retailer.create(body)
     const populated = await Retailer.findById(retailer._id).populate('createdBy', 'name email').lean()
@@ -355,6 +358,7 @@ async function exportRetailers(req, res) {
     if (search && search.trim()) {
       const s = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
       query.$or = [
+        { retailerId: new RegExp(s, 'i') },
         { businessName: new RegExp(s, 'i') },
         { storeName: new RegExp(s, 'i') },
         { contactPerson: new RegExp(s, 'i') },
@@ -371,6 +375,7 @@ async function exportRetailers(req, res) {
 
     const list = await Retailer.find(query).populate('createdBy', 'name email').sort({ createdAt: -1 }).lean()
     const rows = list.map((r) => ({
+      RetailerId: r.retailerId || '',
       BusinessName: r.businessName,
       StoreName: r.storeName || '',
       ContactPerson: r.contactPerson,
@@ -538,6 +543,7 @@ async function importRetailers(req, res) {
 
       const trim = (s) => (s != null ? String(s).trim() : '')
       const doc = {
+        retailerId: await generateRetailerId(),
         businessName: trim(row.businessName),
         storeName: trim(row.storeName) || '',
         contactPerson: trim(row.contactPerson),
@@ -599,7 +605,13 @@ async function stats(req, res) {
         rejectedAt: { $gte: todayStart, $lt: todayEnd },
       }),
       Retailer.countDocuments({ ...baseQuery, status: 'rejected' }),
-      isAdmin ? Retailer.find(approvedTodayQuery).select('businessName storeName approvedAt').sort({ approvedAt: -1 }).lean() : [],
+      isAdmin
+        ? Retailer.find(approvedTodayQuery)
+            .select('retailerId businessName storeName approvedAt createdBy')
+            .populate('createdBy', 'name email')
+            .sort({ approvedAt: -1 })
+            .lean()
+        : [],
     ])
 
     const activeCount = await Retailer.countDocuments({ status: 'active' })
@@ -616,8 +628,10 @@ async function stats(req, res) {
     if (isAdmin && Array.isArray(approvedTodayList)) {
       statsPayload.approvedTodayList = approvedTodayList.map((r) => ({
         _id: r._id,
+        retailerId: r.retailerId || '',
         businessName: r.businessName,
         storeName: r.storeName,
+        agentName: r.createdBy?.name || r.createdBy?.email || '-',
         approvedAt: r.approvedAt ? new Date(r.approvedAt).toISOString() : null,
       }))
     }

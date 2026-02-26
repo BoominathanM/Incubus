@@ -92,6 +92,7 @@ const RetailerBoard = () => {
   const handleImportSuccess = useCallback(({ imported }) => { if (imported > 0) setActiveTab('requests') }, [])
 
   const requestColumns = [
+    { title: 'Retailer ID', dataIndex: 'retailerId', key: 'retailerId', render: (v) => v || '-' },
     { title: 'Business Name', dataIndex: 'businessName', key: 'businessName' },
     { title: 'Store Name', dataIndex: 'storeName', key: 'storeName', render: (v) => v || '—' },
     { title: 'Contact Person', dataIndex: 'contactPerson', key: 'contactPerson' },
@@ -156,7 +157,8 @@ const RetailerBoard = () => {
         <Tag color={status === 'active' ? 'green' : 'red'} style={{ margin: 0, padding: '2px 10px', lineHeight: '22px' }}>{STATUS_DISPLAY[status] ?? status}</Tag>
       ),
     },
-    // { title: 'Created By', dataIndex: 'createdBy', key: 'createdBy', render: (by) => <Tag style={{ margin: 0, padding: '2px 10px' }}>{by}</Tag> },
+    { title: 'Created At', dataIndex: 'createdAt', key: 'createdAt', render: (t) => t || '—' },
+    { title: 'Created By', dataIndex: 'createdBy', key: 'createdBy', render: (by) => <Tag style={{ margin: 0, padding: '2px 10px' }}>{by}</Tag> },
     {
       title: 'Actions',
       key: 'actions',
@@ -189,6 +191,7 @@ const RetailerBoard = () => {
       render: (v) => v || '—',
     },
     { title: 'Rejected At', dataIndex: 'rejectedAt', key: 'rejectedAt', width: 160, render: (t) => (t ? new Date(t).toLocaleString() : '—') },
+    { title: 'Created At', dataIndex: 'createdAt', key: 'createdAt', render: (t) => t || '—' },
     {
       title: 'Actions',
       key: 'actions',
@@ -544,7 +547,7 @@ const RetailerBoard = () => {
         <Title level={2}>Retailer Board</Title>
         <Space wrap>
           <Input
-            placeholder="Search by Business Name, Store, Contact, GST"
+            placeholder="Search by Retailer ID, Business Name, Store, Contact, GST"
             prefix={<SearchOutlined />}
             style={{ width: 280 }}
             value={searchText}
@@ -650,6 +653,7 @@ const RetailerBoard = () => {
       >
         {viewRetailer && (() => {
           const viewRows = [
+            { key: '0', field: 'Retailer ID', value: viewRetailer.retailerId || '-' },
             { key: '1', field: 'Business Name', value: viewRetailer.businessName },
             { key: '2', field: 'Store Name', value: viewRetailer.storeName || '—' },
             { key: '3', field: 'Contact Person', value: viewRetailer.contactPerson },

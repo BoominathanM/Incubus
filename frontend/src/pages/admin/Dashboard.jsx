@@ -37,14 +37,16 @@ const AdminDashboard = () => {
 
   const approvedTodayList = s.approvedTodayList ?? []
   const approvedTodayColumns = [
+    { title: 'Retailer ID', dataIndex: 'retailerId', key: 'retailerId', render: (v) => v || '-' },
     { title: 'Business Name', dataIndex: 'businessName', key: 'businessName' },
     { title: 'Store Name', dataIndex: 'storeName', key: 'storeName' },
     {
       title: 'Approved At',
       dataIndex: 'approvedAt',
       key: 'approvedAt',
-      render: (v) => (v ? dayjs(v).format('DD/MM/YYYY HH:mm') : '—'),
+      render: (v) => (v ? dayjs(v).format('DD/MM/YYYY HH:mm') : '�'),
     },
+    { title: 'Agent Name', dataIndex: 'agentName', key: 'agentName', render: (v) => v || '-' },
   ]
 
   const orderStats = [
@@ -107,7 +109,7 @@ const AdminDashboard = () => {
         ))}
       </Row>
 
-      <Card title="Approved today (by approval date)" style={{ marginBottom: 24 }}>
+      {/* <Card title="Approved today (by approval date)" style={{ marginBottom: 24 }}>
         {approvedTodayList.length > 0 ? (
           <Table
             columns={approvedTodayColumns}
@@ -118,7 +120,7 @@ const AdminDashboard = () => {
         ) : (
           <Typography.Text type="secondary">No retailers approved today.</Typography.Text>
         )}
-      </Card>
+      </Card> */}
 
       <Title level={4} style={{ marginBottom: 16 }}>Order & Revenue Summary ({rangeLabel})</Title>
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
