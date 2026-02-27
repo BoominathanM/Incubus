@@ -2,6 +2,7 @@ const AskevaConfig = require('../models/AskevaConfig.model')
 const AskevaTemplate = require('../models/AskevaTemplate.model')
 const EventTemplateMapping = require('../models/EventTemplateMapping.model')
 const askevaService = require('../services/askeva.service')
+const productSyncService = require('../services/productSync.service')
 const { encrypt, decrypt } = require('../utils/encryption.util')
 
 const COMPANY_ID = process.env.ASKEVA_COMPANY_ID || 'default'
@@ -23,10 +24,15 @@ function normalizeUrl(url) {
 
 exports.getConfig = async (req, res) => {
   try {
-    const companyId = getCompanyId(req)
-    const config = await AskevaConfig.findOne({ companyId })
+    let companyId = getCompanyId(req)
+    let config = await AskevaConfig.findOne({ companyId })
       .select('-apiKey -webhookSecret')
       .lean()
+
+    // Fallback: search for any existing config if specific one not found
+    if (!config) {
+      config = await AskevaConfig.findOne().select('-apiKey -webhookSecret').lean()
+    }
 
     if (!config) {
       return res.json({ success: true, data: { config: null } })
@@ -72,6 +78,7 @@ exports.getCredentials = async (req, res) => {
     res.json({
       success: true,
       data: {
+        companyId: config.companyId,
         apiKey: decryptedApiKey,
         backendUrl: config.backendUrl || 'https://backend.askeva.io',
       },
@@ -86,8 +93,8 @@ exports.getCredentials = async (req, res) => {
 
 exports.saveConfig = async (req, res) => {
   try {
-    const companyId = getCompanyId(req)
-    const { backendUrl, apiKey } = req.body
+    const { backendUrl, apiKey, companyId: bodyCompanyId } = req.body
+    const companyId = bodyCompanyId || getCompanyId(req)
 
     if (!apiKey || !backendUrl) {
       return res.status(400).json({
@@ -102,9 +109,17 @@ exports.saveConfig = async (req, res) => {
     const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`
     const webhookUrl = askevaService.generateWebhookUrl(companyId, baseUrl)
 
-    const existingConfig = await AskevaConfig.findOne({ companyId }).select(
-      '+apiKey +webhookSecret'
-    )
+    // Flexible lookup: 
+    // 1. Try bodyCompanyId
+    // 2. Try 'default' if bodyCompanyId is different
+    // 3. Try any existing config
+    let existingConfig = await AskevaConfig.findOne({ companyId }).select('+apiKey +webhookSecret')
+    if (!existingConfig && companyId !== 'default') {
+      existingConfig = await AskevaConfig.findOne({ companyId: 'default' }).select('+apiKey +webhookSecret')
+    }
+    if (!existingConfig) {
+      existingConfig = await AskevaConfig.findOne().select('+apiKey +webhookSecret')
+    }
 
     const updateData = {
       companyId,
@@ -133,8 +148,9 @@ exports.saveConfig = async (req, res) => {
       updateData.createdBy = req.user.id
     }
 
+    const filter = existingConfig ? { _id: existingConfig._id } : { companyId }
     const config = await AskevaConfig.findOneAndUpdate(
-      { companyId },
+      filter,
       updateData,
       { upsert: true, new: true, runValidators: true }
     )
@@ -167,12 +183,17 @@ exports.saveConfig = async (req, res) => {
 
 exports.testConnection = async (req, res) => {
   try {
-    const companyId = getCompanyId(req)
+    let companyId = getCompanyId(req)
     const { apiKey, backendUrl } = req.body
 
     let config = await AskevaConfig.findOne({ companyId })
       .select('+apiKey')
       .lean()
+
+    // Fallback search
+    if (!config) {
+      config = await AskevaConfig.findOne().select('+apiKey').lean()
+    }
 
     const testConfig = {
       apiKey: apiKey || (config?.apiKey ? decrypt(config.apiKey) : ''),
@@ -188,8 +209,9 @@ exports.testConnection = async (req, res) => {
 
     const result = await askevaService.testConnection(companyId, testConfig)
 
+    const updateFilter = config ? { _id: config._id } : { companyId }
     await AskevaConfig.updateOne(
-      { companyId },
+      updateFilter,
       {
         isConnected: result.success,
         lastVerifiedAt: new Date(),
@@ -216,10 +238,18 @@ exports.testConnection = async (req, res) => {
 exports.disconnect = async (req, res) => {
   try {
     const companyId = getCompanyId(req)
-    await AskevaConfig.deleteOne({ companyId })
-    await AskevaTemplate.deleteMany({ companyId })
-    await EventTemplateMapping.deleteMany({ companyId })
-    res.json({ success: true, message: 'ASKEVA disconnected successfully. All templates and event mappings have been cleared.' })
+    const config = await AskevaConfig.findOne({ companyId })
+    const cid = config ? config.companyId : companyId
+
+    await AskevaConfig.deleteMany({}) // Remove all as we support only one active integration usually
+    await AskevaTemplate.deleteMany({}) // Remove all templates
+    await EventTemplateMapping.deleteMany({}) // Remove all event mappings
+
+    // Also remove all products on disconnect
+    const Product = require('../models/Product.model')
+    await Product.deleteMany({})
+
+    res.json({ success: true, message: 'ASKEVA disconnected successfully. All templates, products and event mappings have been cleared.' })
   } catch (err) {
     res.status(500).json({
       success: false,
@@ -230,7 +260,12 @@ exports.disconnect = async (req, res) => {
 
 exports.syncTemplates = async (req, res) => {
   try {
-    const companyId = getCompanyId(req)
+    let companyId = getCompanyId(req)
+    let config = await AskevaConfig.findOne({ companyId })
+    if (!config) {
+      config = await AskevaConfig.findOne()
+      if (config) companyId = config.companyId
+    }
     const result = await askevaService.syncTemplates(companyId)
 
     if (result.success) {
@@ -255,9 +290,49 @@ exports.syncTemplates = async (req, res) => {
   }
 }
 
+exports.syncProducts = async (req, res) => {
+  try {
+    let companyId = getCompanyId(req)
+    let config = await AskevaConfig.findOne({ companyId })
+    if (!config) {
+      config = await AskevaConfig.findOne()
+      if (config) companyId = config.companyId
+    }
+    const result = await productSyncService.syncProducts(companyId)
+
+    if (result.success) {
+      res.json({
+        success: true,
+        data: {
+          count: result.count,
+          message: `Successfully synced ${result.count} products`,
+        },
+      })
+    } else {
+      res.status(400).json({
+        success: false,
+        error: { message: result.error || 'Failed to sync products' },
+      })
+    }
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: { message: err.message || 'Failed to sync products' },
+    })
+  }
+}
+
 exports.getTemplates = async (req, res) => {
   try {
-    const companyId = getCompanyId(req)
+    let companyId = getCompanyId(req)
+    // Keep template listing aligned with sync behavior when auth/user company is unavailable.
+    if (!req.user?.companyId) {
+      const config = await AskevaConfig.findOne({ companyId }).select('companyId').lean()
+      if (!config) {
+        const fallbackConfig = await AskevaConfig.findOne().select('companyId').lean()
+        if (fallbackConfig?.companyId) companyId = fallbackConfig.companyId
+      }
+    }
     const requestedLimit = parseInt(req.query.limit, 10)
     const isGetAll = requestedLimit >= 1000
     const page = isGetAll ? 1 : Math.max(1, parseInt(req.query.page, 10) || 1)

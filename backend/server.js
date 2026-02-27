@@ -10,6 +10,8 @@ const countryCodesRoutes = require('./routes/countryCodes')
 const askevaRoutes = require('./routes/askeva')
 const askevaController = require('./controllers/askevaController')
 const retailerRoutes = require('./routes/retailers')
+const cron = require('node-cron')
+const { syncAllCompanies } = require('./services/productSync.service')
 
 const app = express()
 const PORT = process.env.PORT || 7000
@@ -45,6 +47,16 @@ async function start() {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`)
   })
+
+  // Start Product Sync Cron Job (Every 5 minutes)
+  cron.schedule('*/5 * * * *', () => {
+    console.log('[Cron] Starting scheduled product synchronization...')
+    syncAllCompanies().catch(err => console.error('[Cron] Product sync failed:', err))
+  })
+
+  // Also run once on startup for immediate sync
+  console.log('[Startup] Triggering initial product synchronization...')
+  syncAllCompanies().catch(err => console.error('[Startup] Initial product sync failed:', err))
 }
 
 start().catch((err) => {

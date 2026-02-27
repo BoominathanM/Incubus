@@ -45,6 +45,13 @@ export const askevaApi = baseApi.injectEndpoints({
       }),
       invalidatesTags: [{ type: 'AskevaConfig', id: 'CONFIG' }, { type: 'AskevaTemplates', id: 'LIST' }],
     }),
+    syncAskevaProducts: build.mutation({
+      query: () => ({
+        url: '/api/askeva/sync-products',
+        method: 'POST',
+      }),
+      invalidatesTags: [{ type: 'AskevaConfig', id: 'CONFIG' }],
+    }),
     getAskevaTemplates: build.query({
       query: (params) => ({
         url: '/api/askeva/templates',
@@ -53,9 +60,9 @@ export const askevaApi = baseApi.injectEndpoints({
       providesTags: (result) =>
         result?.data?.templates
           ? [
-              ...result.data.templates.map((t) => ({ type: 'AskevaTemplates', id: t._id })),
-              { type: 'AskevaTemplates', id: 'LIST' },
-            ]
+            ...result.data.templates.map((t) => ({ type: 'AskevaTemplates', id: t._id })),
+            { type: 'AskevaTemplates', id: 'LIST' },
+          ]
           : [{ type: 'AskevaTemplates', id: 'LIST' }],
     }),
     getEventTemplateMappings: build.query({
@@ -63,9 +70,9 @@ export const askevaApi = baseApi.injectEndpoints({
       providesTags: (result) =>
         result?.data?.mappings
           ? [
-              ...result.data.mappings.map((m) => ({ type: 'EventMappings', id: m._id })),
-              { type: 'EventMappings', id: 'LIST' },
-            ]
+            ...result.data.mappings.map((m) => ({ type: 'EventMappings', id: m._id })),
+            { type: 'EventMappings', id: 'LIST' },
+          ]
           : [{ type: 'EventMappings', id: 'LIST' }],
     }),
     saveEventTemplateMapping: build.mutation({
@@ -96,6 +103,7 @@ export const {
   useTestAskevaConnectionMutation,
   useDisconnectAskevaMutation,
   useSyncAskevaTemplatesMutation,
+  useSyncAskevaProductsMutation,
   useGetAskevaTemplatesQuery,
   useGetEventTemplateMappingsQuery,
   useSaveEventTemplateMappingMutation,
