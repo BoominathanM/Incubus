@@ -21,5 +21,8 @@ router.post('/event-mappings', askeva.saveEventTemplateMapping)
 router.put('/event-mappings/:id', askeva.saveEventTemplateMapping)
 router.delete('/event-mappings/:id', askeva.deleteEventTemplateMapping)
 router.post('/send-message', askeva.sendMessage)
+router.get('/webhook-messages', askeva.getWebhookMessages)
+router.get('/webhook-messages/:id', askeva.getWebhookMessageById)
+router.patch('/webhook-messages/mark-read', askeva.markWebhookMessagesRead)
 
 module.exports = router

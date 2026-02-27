@@ -1,9 +1,38 @@
 const AskevaConfig = require('../models/AskevaConfig.model')
 const AskevaTemplate = require('../models/AskevaTemplate.model')
 const EventTemplateMapping = require('../models/EventTemplateMapping.model')
+const WebhookMessage = require('../models/WebhookMessage.model')
+const AskevaCatalog = require('../models/AskevaCatalog.model')
+const Product = require('../models/Product.model')
+const Retailer = require('../models/Retailer')
 const askevaService = require('../services/askeva.service')
 const productSyncService = require('../services/productSync.service')
 const { encrypt, decrypt } = require('../utils/encryption.util')
+
+/** Normalize a phone number to digits only (strip + and spaces). */
+function normalizePhone(countryCode, number) {
+  const cc = (countryCode || '').replace(/\D/g, '')
+  const num = (number || '').replace(/\D/g, '')
+  return cc + num
+}
+
+/**
+ * Find an active retailer whose WhatsApp number matches the webhook sender.
+ * fromNumber is the raw wa_id from the webhook (digits only, e.g. "919876543210").
+ */
+async function findActiveRetailerByPhone(fromNumber) {
+  const digits = (fromNumber || '').replace(/\D/g, '')
+  if (!digits) return null
+  // Load all active retailers and compare normalized numbers
+  const retailers = await Retailer.find(
+    { status: 'active' },
+    'businessName storeName contactPerson whatsappCountryCode whatsappNumber'
+  ).lean()
+  return retailers.find((r) => {
+    const full = normalizePhone(r.whatsappCountryCode, r.whatsappNumber)
+    return full === digits || r.whatsappNumber.replace(/\D/g, '') === digits
+  }) || null
+}
 
 const COMPANY_ID = process.env.ASKEVA_COMPANY_ID || 'default'
 
@@ -633,39 +662,272 @@ exports.sendMessage = async (req, res) => {
 exports.handleWebhook = async (req, res) => {
   try {
     const { companyId } = req.params
-    const signature = req.headers['x-hub-signature-256']
-    const payload = JSON.stringify(req.body)
 
+    // Optional signature verification — only if webhookSecret is stored
     const config = await AskevaConfig.findOne({ companyId }).select('+webhookSecret').lean()
-    if (!config) {
-      return res.status(404).json({ success: false, error: { message: 'Configuration not found' } })
-    }
-    if (!config.webhookSecret) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'Webhook secret not configured' },
-      })
-    }
-
-    const secret = decrypt(config.webhookSecret)
-    const isValid = askevaService.verifyWebhookSignature(payload, signature || '', secret)
-    if (!isValid) {
-      return res.status(401).json({ success: false, error: { message: 'Invalid webhook signature' } })
+    if (config?.webhookSecret) {
+      const signature = req.headers['x-hub-signature-256']
+      const payload = JSON.stringify(req.body)
+      const secret = decrypt(config.webhookSecret)
+      const isValid = askevaService.verifyWebhookSignature(payload, signature || '', secret)
+      if (!isValid) {
+        return res.status(401).json({ success: false, error: { message: 'Invalid webhook signature' } })
+      }
     }
 
-    const eventType = req.body.entry?.[0]?.changes?.[0]?.value?.statuses?.[0]?.status
-      ? 'message_status'
-      : req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]
-        ? 'message_received'
-        : 'unknown'
-
-    askevaService.processWebhook(companyId, eventType, req.body).catch((e) => console.error('Webhook process error:', e))
+    // Acknowledge immediately — WhatsApp requires fast response
     res.status(200).json({ success: true })
+
+    // Process asynchronously
+    processWebhookPayload(companyId, req.body).catch((e) =>
+      console.error('[Webhook] Processing error:', e.message)
+    )
   } catch (err) {
-    console.error('Webhook error:', err)
-    res.status(500).json({
-      success: false,
-      error: { message: 'Webhook processing failed' },
-    })
+    console.error('[Webhook] Error:', err)
+    res.status(500).json({ success: false, error: { message: 'Webhook processing failed' } })
   }
+}
+
+async function processWebhookPayload(companyId, body) {
+  const entries = body?.entry || []
+  for (const entry of entries) {
+    const changes = entry?.changes || []
+    for (const change of changes) {
+      const value = change?.value || {}
+      const messages = value?.messages || []
+      const contacts = value?.contacts || []
+
+      for (const msg of messages) {
+        const fromNumber = (msg.from || '').replace(/\D/g, '')
+        if (!fromNumber) continue
+
+        // Get sender display name from contacts array
+        const contact = contacts.find((c) => (c.wa_id || '').replace(/\D/g, '') === fromNumber)
+        const fromName = contact?.profile?.name || ''
+
+        // Determine message type and body
+        const messageType = msg.type || 'text'
+        let messageBody = ''
+        if (msg.text?.body) messageBody = msg.text.body
+        else if (msg.caption) messageBody = msg.caption
+        else if (msg.image?.caption) messageBody = msg.image.caption
+        else if (msg.document?.caption) messageBody = msg.document.caption
+
+        // Timestamp from WhatsApp (Unix seconds)
+        const ts = msg.timestamp ? new Date(parseInt(msg.timestamp, 10) * 1000) : new Date()
+
+        // Look up active retailer by WhatsApp number
+        const retailer = await findActiveRetailerByPhone(fromNumber)
+
+        await WebhookMessage.create({
+          companyId,
+          messageId: msg.id || '',
+          from: fromNumber,
+          fromName,
+          messageType,
+          messageBody,
+          timestamp: ts,
+          retailer: retailer?._id || null,
+          retailerMatched: !!retailer,
+          rawPayload: { entry: body.entry },
+        })
+
+        console.log(
+          `[Webhook] Stored message from ${fromNumber} — Retailer: ${retailer?.businessName || 'unmatched'}`
+        )
+      }
+
+      // Also handle status updates (delivery receipts etc.) — just log them
+      const statuses = value?.statuses || []
+      if (statuses.length) {
+        console.log(`[Webhook] ${statuses.length} status update(s) received`)
+      }
+    }
+  }
+}
+
+exports.getWebhookMessages = async (req, res) => {
+  try {
+    const companyId = getCompanyId(req)
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1)
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20))
+    const skip = (page - 1) * limit
+    const { retailerMatched, isRead } = req.query
+
+    const query = { companyId }
+    if (retailerMatched === 'true') query.retailerMatched = true
+    if (retailerMatched === 'false') query.retailerMatched = false
+    if (isRead === 'true') query.isRead = true
+    if (isRead === 'false') query.isRead = false
+
+    const [messages, total, unreadCount] = await Promise.all([
+      WebhookMessage.find(query)
+        .populate('retailer', 'retailerId businessName storeName contactPerson whatsappNumber whatsappCountryCode status')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      WebhookMessage.countDocuments(query),
+      WebhookMessage.countDocuments({ companyId, isRead: false }),
+    ])
+
+    res.json({
+      success: true,
+      data: {
+        messages,
+        pagination: { page, limit, total, pages: Math.ceil(total / limit) || 1 },
+        unreadCount,
+      },
+    })
+  } catch (err) {
+    res.status(500).json({ success: false, error: { message: err.message || 'Failed to fetch webhook messages' } })
+  }
+}
+
+exports.getWebhookMessageById = async (req, res) => {
+  try {
+    const companyId = getCompanyId(req)
+    const { id } = req.params
+    const msg = await WebhookMessage.findOne({ _id: id, companyId })
+      .populate('retailer', 'retailerId businessName storeName contactPerson whatsappNumber whatsappCountryCode status city state')
+      .lean()
+    if (!msg) {
+      return res.status(404).json({ success: false, error: { message: 'Message not found' } })
+    }
+    // Mark as read when viewed
+    await WebhookMessage.updateOne({ _id: id }, { isRead: true })
+    res.json({ success: true, data: { message: { ...msg, isRead: true } } })
+  } catch (err) {
+    res.status(500).json({ success: false, error: { message: err.message || 'Failed to fetch message' } })
+  }
+}
+
+exports.markWebhookMessagesRead = async (req, res) => {
+  try {
+    const companyId = getCompanyId(req)
+    const { ids } = req.body // array of message IDs, or empty to mark all
+    const filter = { companyId }
+    if (Array.isArray(ids) && ids.length) filter._id = { $in: ids }
+    await WebhookMessage.updateMany(filter, { isRead: true })
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ success: false, error: { message: err.message || 'Failed to mark messages read' } })
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CATALOG WEBHOOK  (Webhook Report Configurations in Askeva panel)
+// URL: POST /api/askeva/webhook-catalog/:companyId
+// ─────────────────────────────────────────────────────────────────────────────
+
+exports.handleCatalogWebhook = async (req, res) => {
+  // Acknowledge immediately so Askeva doesn't timeout
+  res.status(200).json({ success: true })
+
+  const { companyId } = req.params
+  const body = req.body
+
+  console.log('[CatalogWebhook] Received payload for company:', companyId)
+  console.log('[CatalogWebhook] Raw body:', JSON.stringify(body, null, 2))
+
+  processCatalogPayload(companyId, body).catch((e) =>
+    console.error('[CatalogWebhook] Processing error:', e.message)
+  )
+}
+
+async function processCatalogPayload(companyId, body) {
+  // Askeva catalog webhook can arrive in multiple shapes — handle all of them
+
+  // ── Shape 1: { catalogs: [...] } ─────────────────────────────────────────
+  // ── Shape 2: { catalog: {...}, products: [...] } ──────────────────────────
+  // ── Shape 3: { data: { catalogs: [...] } } ───────────────────────────────
+  // ── Shape 4: flat single catalog object { catalogId, name, products: [...] }
+
+  const root = body?.data || body
+
+  // Collect all catalog objects from the payload
+  let catalogs = []
+  if (Array.isArray(root?.catalogs)) catalogs = root.catalogs
+  else if (Array.isArray(root)) catalogs = root
+  else if (root?.catalogId || root?.catalog_id || root?.id) catalogs = [root]
+  else if (root?.catalog) catalogs = [root.catalog]
+
+  // Also handle a flat products-only payload (no explicit catalog wrapper)
+  // In this case we create/update a "default" catalog entry
+  const flatProducts = Array.isArray(root?.products) && catalogs.length === 0
+    ? root.products
+    : []
+
+  let catalogCount = 0
+  let productCount = 0
+
+  for (const c of catalogs) {
+    const cid = String(c.catalogId || c.catalog_id || c.id || c._id || '').trim()
+    if (!cid) continue
+
+    // Upsert catalog
+    await AskevaCatalog.findOneAndUpdate(
+      { companyId, catalogId: cid },
+      {
+        companyId,
+        catalogId: cid,
+        name: c.name || c.title || '',
+        status: c.status || 'active',
+        rawResponse: c,
+        lastSyncedAt: new Date(),
+      },
+      { upsert: true, new: true }
+    )
+    catalogCount++
+    console.log(`[CatalogWebhook] Upserted catalog: ${cid}`)
+
+    // Upsert products inside this catalog
+    const products = Array.isArray(c.products) ? c.products
+      : Array.isArray(c.items) ? c.items
+      : []
+
+    for (const p of products) {
+      const pid = String(p.id || p.product_id || p.productId || p.item_id || p._id || '').trim()
+      if (!pid) continue
+      await upsertProduct(companyId, cid, pid, p)
+      productCount++
+    }
+  }
+
+  // Handle flat products payload
+  if (flatProducts.length) {
+    const fallbackCatalogId = String(root?.catalogId || root?.catalog_id || 'default')
+    for (const p of flatProducts) {
+      const pid = String(p.id || p.product_id || p.productId || p.item_id || p._id || '').trim()
+      if (!pid) continue
+      await upsertProduct(companyId, fallbackCatalogId, pid, p)
+      productCount++
+    }
+  }
+
+  console.log(
+    `[CatalogWebhook] Done — ${catalogCount} catalog(s), ${productCount} product(s) stored for company ${companyId}`
+  )
+}
+
+async function upsertProduct(companyId, catalogId, productId, p) {
+  await Product.findOneAndUpdate(
+    { companyId, productId },
+    {
+      companyId,
+      catalogId,
+      productId,
+      name: p.name || p.title || 'No Name',
+      description: p.description || p.desc || '',
+      price: p.price || p.sale_price || p.retailer_price || 0,
+      category: p.category || p.category_name || p.type || 'General',
+      imageUrl: p.image_url || p.imageUrl || p.thumb || p.defaultImage || '',
+      sku: p.sku || '',
+      isAvailable: p.is_available !== false && p.stock !== 0,
+      rawResponse: p,
+      lastSyncedAt: new Date(),
+    },
+    { upsert: true, new: true }
+  )
+  console.log(`[CatalogWebhook]   Upserted product: ${productId}`)
 }
