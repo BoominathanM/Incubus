@@ -1,11 +1,12 @@
 const axios = require('axios')
 const AskevaConfig = require('../models/AskevaConfig.model')
+const AskevaCatalog = require('../models/AskevaCatalog.model')
 const Product = require('../models/Product.model')
 const { decrypt } = require('../utils/encryption.util')
 
 /**
- * Fetch products for a specific company and store/update in DB
- * @param {string} companyId - The ID of the company on AskEVA
+ * Step 1: Fetch active catalogs and store in AskevaCatalog collection.
+ * Step 2: For each catalog, fetch its products and store in Product collection.
  */
 const syncProducts = async (companyId) => {
     try {
@@ -17,67 +18,112 @@ const syncProducts = async (companyId) => {
 
         const token = decrypt(config.apiKey)
         const backendUrl = config.backendUrl || 'https://backend.askeva.io'
-        const url = `${backendUrl}/v1/commerce/products/${companyId}?token=${encodeURIComponent(token)}`
 
-        console.log(`[Sync] Fetching products for company ${companyId}...`)
+        // ── Step 1: Fetch active catalogs ────────────────────────────────────
+        console.log(`[Sync] Fetching active catalogs for company ${companyId}...`)
+        const catalogUrl = `${backendUrl}/v1/commerce/catalogs?status=active&token=${encodeURIComponent(token)}`
+        const catalogResponse = await axios.get(catalogUrl)
 
-        // Cleanup: If we are now using a real ID, remove any 'default' products to prevent duplicates
-        if (companyId !== 'default') {
-            await Product.deleteMany({ companyId: 'default' })
+        let catalogs = []
+        if (Array.isArray(catalogResponse.data)) {
+            catalogs = catalogResponse.data
+        } else if (catalogResponse.data && Array.isArray(catalogResponse.data.data)) {
+            catalogs = catalogResponse.data.data
+        } else if (catalogResponse.data && Array.isArray(catalogResponse.data.catalogs)) {
+            catalogs = catalogResponse.data.catalogs
         }
 
-        const response = await axios.get(url)
-
-        // Data can follow different formats, we handle common ones
-        let products = []
-        if (Array.isArray(response.data)) {
-            products = response.data
-        } else if (response.data && Array.isArray(response.data.products)) {
-            products = response.data.products
-        } else if (response.data && Array.isArray(response.data.data)) {
-            products = response.data.data
+        if (catalogs.length === 0) {
+            console.log(`[Sync] No active catalogs found for company ${companyId}.`)
+            return { success: true, catalogCount: 0, productCount: 0 }
         }
 
-        if (products.length === 0) {
-            console.log(`[Sync] No products found for company ${companyId}.`)
-            return { success: true, count: 0 }
-        }
+        // ── Step 2: Store each catalog in AskevaCatalog collection ───────────
+        let catalogCount = 0
+        const activeCatalogIds = []
 
-        let syncedCount = 0
-        for (const p of products) {
-            // Map AskEVA product to our model
-            // We use 'id' or 'product_id' or 'productId' from payload
-            const pid = p.id || p.product_id || p.productId || p.item_id
-            if (!pid) continue
+        for (const c of catalogs) {
+            const cid = c.catalogId || c.id || c._id
+            if (!cid) continue
 
-            const updateData = {
-                companyId,
-                productId: pid,
-                name: p.name || p.title || 'No Name',
-                description: p.description || p.desc || '',
-                price: p.price || p.sale_price || 0,
-                category: p.category || p.category_name || 'General',
-                imageUrl: p.image_url || p.imageUrl || p.thumb || '',
-                sku: p.sku || '',
-                isAvailable: p.is_available !== false && p.stock !== 0,
-                rawResponse: p,
-                lastSyncedAt: new Date(),
-            }
-
-            await Product.findOneAndUpdate(
-                { companyId, productId: pid },
-                updateData,
+            await AskevaCatalog.findOneAndUpdate(
+                { companyId, catalogId: String(cid) },
+                {
+                    companyId,
+                    catalogId: String(cid),
+                    name: c.name || c.title || '',
+                    status: c.status || 'active',
+                    rawResponse: c,
+                    lastSyncedAt: new Date(),
+                },
                 { upsert: true, new: true }
             )
-            syncedCount++
+            activeCatalogIds.push(String(cid))
+            catalogCount++
         }
 
-        console.log(`[Sync] Successfully synced ${syncedCount} products for company ${companyId}.`)
+        console.log(`[Sync] Stored ${catalogCount} catalogs for company ${companyId}.`)
+
+        // ── Step 3: For each catalog, fetch and store its products ────────────
+        let totalProductCount = 0
+
+        for (const cid of activeCatalogIds) {
+            console.log(`[Sync] Fetching products for catalog ${cid}...`)
+            const productUrl = `${backendUrl}/v1/commerce/products/${cid}?token=${encodeURIComponent(token)}`
+
+            try {
+                const productResponse = await axios.get(productUrl)
+
+                let products = []
+                if (Array.isArray(productResponse.data)) {
+                    products = productResponse.data
+                } else if (productResponse.data && Array.isArray(productResponse.data.products)) {
+                    products = productResponse.data.products
+                } else if (productResponse.data && Array.isArray(productResponse.data.data)) {
+                    products = productResponse.data.data
+                }
+
+                for (const p of products) {
+                    const pid = p.id || p.product_id || p.productId || p.item_id || p._id
+                    if (!pid) continue
+
+                    await Product.findOneAndUpdate(
+                        { companyId, productId: String(pid) },
+                        {
+                            companyId,
+                            catalogId: cid,
+                            productId: String(pid),
+                            name: p.name || p.title || 'No Name',
+                            description: p.description || p.desc || '',
+                            price: p.price || p.sale_price || 0,
+                            category: p.category || p.category_name || p.type || 'General',
+                            imageUrl: p.image_url || p.imageUrl || p.thumb || p.defaultImage || '',
+                            sku: p.sku || '',
+                            isAvailable: p.is_available !== false && p.stock !== 0,
+                            rawResponse: p,
+                            lastSyncedAt: new Date(),
+                        },
+                        { upsert: true, new: true }
+                    )
+                    totalProductCount++
+                }
+
+                console.log(`[Sync] Synced ${products.length} products for catalog ${cid}.`)
+            } catch (productError) {
+                console.error(`[Sync] Failed to fetch products for catalog ${cid}:`, productError.message)
+                if (productError.response) {
+                    console.error(`[Sync] API response:`, productError.response.status, productError.response.data)
+                }
+                // Continue to next catalog even if one fails
+            }
+        }
+
+        console.log(`[Sync] Completed for company ${companyId}: ${catalogCount} catalogs, ${totalProductCount} products.`)
         await AskevaConfig.updateOne({ companyId }, { lastSyncedAt: new Date() })
 
-        return { success: true, count: syncedCount }
+        return { success: true, catalogCount, productCount: totalProductCount }
     } catch (error) {
-        console.error(`[Sync] Error syncing products for company ${companyId}:`, error.message)
+        console.error(`[Sync] Error syncing for company ${companyId}:`, error.message)
         if (error.response) {
             console.error(`[Sync] API response error:`, error.response.status, error.response.data)
         }

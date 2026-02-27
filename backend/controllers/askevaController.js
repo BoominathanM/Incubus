@@ -220,6 +220,11 @@ exports.testConnection = async (req, res) => {
     )
 
     if (result.success) {
+      // Trigger product sync in background after successful connection
+      const syncCompanyId = config ? config.companyId : companyId
+      productSyncService.syncProducts(syncCompanyId).catch((e) =>
+        console.error('[Sync] Post-connection product sync failed:', e.message)
+      )
       res.json({ success: true, message: 'Connection successful' })
     } else {
       res.status(400).json({
@@ -304,8 +309,9 @@ exports.syncProducts = async (req, res) => {
       res.json({
         success: true,
         data: {
-          count: result.count,
-          message: `Successfully synced ${result.count} products`,
+          catalogCount: result.catalogCount,
+          productCount: result.productCount,
+          message: `Synced ${result.catalogCount} catalog(s) and ${result.productCount} product(s)`,
         },
       })
     } else {

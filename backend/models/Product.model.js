@@ -3,6 +3,7 @@ const mongoose = require('mongoose')
 const productSchema = new mongoose.Schema(
   {
     companyId: { type: String, required: true },
+    catalogId: { type: String, required: true },
     productId: { type: String, required: true },
     name: { type: String, required: true },
     description: { type: String, default: '' },

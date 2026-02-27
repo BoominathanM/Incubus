@@ -43,7 +43,6 @@ import {
   useTestAskevaConnectionMutation,
   useDisconnectAskevaMutation,
   useSyncAskevaTemplatesMutation,
-  useSyncAskevaProductsMutation,
   useGetAskevaTemplatesQuery,
   useGetEventTemplateMappingsQuery,
   useSaveEventTemplateMappingMutation,
@@ -88,7 +87,6 @@ const WhatsAppIntegration = () => {
   const [testConnection, { isLoading: testLoading }] = useTestAskevaConnectionMutation()
   const [disconnect, { isLoading: disconnectLoading }] = useDisconnectAskevaMutation()
   const [syncTemplates, { isLoading: syncLoading }] = useSyncAskevaTemplatesMutation()
-  const [syncProducts, { isLoading: syncProductsLoading }] = useSyncAskevaProductsMutation()
   const templatesQueryParams =
     activeTab === 'templates'
       ? { page: templatePage, limit: templatePageSize }
@@ -123,13 +121,11 @@ const WhatsAppIntegration = () => {
   useEffect(() => {
     if (isConfigured && config) {
       form.setFieldsValue({
-        companyId: config.companyId || '',
         backendUrl: config.backendUrl || DEFAULT_BACKEND_URL,
         apiKey: '••••••••',
       })
     } else if (!isConfigured) {
       form.setFieldsValue({
-        companyId: '',
         backendUrl: DEFAULT_BACKEND_URL,
         apiKey: '',
       })
@@ -140,7 +136,6 @@ const WhatsAppIntegration = () => {
     const cred = credentialsRes?.data
     if (editConfigMode && cred) {
       form.setFieldsValue({
-        companyId: cred.companyId ?? '',
         apiKey: cred.apiKey ?? '',
         backendUrl: cred.backendUrl || DEFAULT_BACKEND_URL,
       })
@@ -332,15 +327,6 @@ const WhatsAppIntegration = () => {
     }
   }
 
-  const handleSyncProducts = async () => {
-    try {
-      const res = await syncProducts().unwrap()
-      message.success(res?.data?.message || 'Products synced successfully')
-    } catch (e) {
-      message.error(e?.data?.error?.message || e?.error?.message || 'Failed to sync products')
-    }
-  }
-
   const handleSaveConfiguration = async () => {
     try {
       const values = await form.validateFields()
@@ -350,7 +336,6 @@ const WhatsAppIntegration = () => {
         return
       }
       await saveConfig({
-        companyId: values.companyId,
         backendUrl: values.backendUrl || DEFAULT_BACKEND_URL,
         apiKey,
       }).unwrap()
@@ -499,16 +484,6 @@ const WhatsAppIntegration = () => {
                 />
               </Form.Item>
               <Form.Item
-                name="companyId"
-                label="Company ID *"
-                rules={[{ required: true, message: 'Please enter Company ID' }]}
-              >
-                <Input
-                  placeholder="Enter your AskEVA Company ID (e.g. 1215457827260218)"
-                  disabled={fieldsDisabled}
-                />
-              </Form.Item>
-              <Form.Item
                 name="apiKey"
                 label="API Key / Access Token *"
                 rules={[{ required: true, message: 'Please enter API Key' }]}
@@ -550,14 +525,6 @@ const WhatsAppIntegration = () => {
                       onClick={handleTestConnection}
                     >
                       Test Connection
-                    </Button>
-                    <Button
-                      type="default"
-                      icon={<SyncOutlined />}
-                      loading={syncProductsLoading}
-                      onClick={handleSyncProducts}
-                    >
-                      Sync Products
                     </Button>
                     <Button
                       icon={<EditOutlined />}
