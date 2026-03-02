@@ -34,6 +34,10 @@ import {
   EyeOutlined,
   ThunderboltOutlined,
   MoreOutlined,
+  InboxOutlined,
+  PhoneOutlined,
+  ShopOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons'
 import Breadcrumbs from '../../components/Breadcrumbs'
 import {
@@ -47,6 +51,8 @@ import {
   useGetEventTemplateMappingsQuery,
   useSaveEventTemplateMappingMutation,
   useDeleteEventTemplateMappingMutation,
+  useGetWebhookMessagesQuery,
+  useMarkWebhookMessagesReadMutation,
 } from '../../store/api/askevaApi'
 
 const { Title, Text } = Typography
@@ -80,6 +86,11 @@ const WhatsAppIntegration = () => {
   const [editConfigMode, setEditConfigMode] = useState(false)
   const [templatePage, setTemplatePage] = useState(1)
   const [templatePageSize, setTemplatePageSize] = useState(10)
+  const [inboxPage, setInboxPage] = useState(1)
+  const [inboxPageSize, setInboxPageSize] = useState(20)
+  const [inboxFilter, setInboxFilter] = useState('all') // 'all' | 'matched' | 'unmatched' | 'unread'
+  const [selectedMessage, setSelectedMessage] = useState(null)
+  const [messageDrawerOpen, setMessageDrawerOpen] = useState(false)
 
   const { data: configRes, isLoading: configLoading } = useGetAskevaConfigQuery()
   const { data: credentialsRes } = useGetAskevaCredentialsQuery(undefined, { skip: !editConfigMode })
@@ -100,6 +111,23 @@ const WhatsAppIntegration = () => {
   })
   const [saveEventMapping, { isLoading: saveMappingLoading }] = useSaveEventTemplateMappingMutation()
   const [deleteEventMapping] = useDeleteEventTemplateMappingMutation()
+
+  const inboxQueryParams = activeTab === 'webhookInbox' ? {
+    page: inboxPage,
+    limit: inboxPageSize,
+    ...(inboxFilter === 'matched' ? { retailerMatched: 'true' } : {}),
+    ...(inboxFilter === 'unmatched' ? { retailerMatched: 'false' } : {}),
+    ...(inboxFilter === 'unread' ? { isRead: 'false' } : {}),
+  } : null
+  const { data: inboxRes, isLoading: inboxLoading, refetch: refetchInbox } = useGetWebhookMessagesQuery(
+    inboxQueryParams,
+    { skip: activeTab !== 'webhookInbox', pollingInterval: 30000 }
+  )
+  const [markRead] = useMarkWebhookMessagesReadMutation()
+
+  const inboxMessages = inboxRes?.data?.messages ?? []
+  const inboxTotal = inboxRes?.data?.pagination?.total ?? 0
+  const inboxUnread = inboxRes?.data?.unreadCount ?? 0
 
   const config = configRes?.data?.config ?? null
   const isConfigured = !!config
@@ -278,11 +306,11 @@ const WhatsAppIntegration = () => {
                 fullTemplate
                   ? buildVariableMappingsFromTemplate(fullTemplate, raw?.variables || [])
                   : (raw?.variables || []).map((v) => ({
-                      templateVariable: v.templateVariable,
-                      hrmsField: v.hrmsField,
-                      defaultValue: v.defaultValue || '',
-                      mapped: true,
-                    }))
+                    templateVariable: v.templateVariable,
+                    hrmsField: v.hrmsField,
+                    defaultValue: v.defaultValue || '',
+                    mapped: true,
+                  }))
               )
               setEventModalVisible(true)
             },
@@ -450,6 +478,88 @@ const WhatsAppIntegration = () => {
     setVariableMappings(updated)
   }
 
+  const handleViewMessage = async (record) => {
+    setSelectedMessage(record)
+    setMessageDrawerOpen(true)
+    if (!record.isRead) {
+      markRead([record._id]).catch(() => {})
+    }
+  }
+
+  const inboxColumns = [
+    {
+      title: 'Received',
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      width: 160,
+      render: (d) => (
+        <Text style={{ fontSize: 12 }}>{d ? new Date(d).toLocaleString() : '—'}</Text>
+      ),
+    },
+    {
+      title: 'Sender',
+      key: 'sender',
+      render: (_, r) => (
+        <Space direction="vertical" size={0}>
+          <Space>
+            <PhoneOutlined style={{ color: '#15B9A4' }} />
+            <Text strong>+{r.from}</Text>
+          </Space>
+          {r.fromName && <Text type="secondary" style={{ fontSize: 12 }}>{r.fromName}</Text>}
+        </Space>
+      ),
+    },
+    {
+      title: 'Retailer',
+      key: 'retailer',
+      render: (_, r) => {
+        if (r.retailerMatched && r.retailer) {
+          return (
+            <Space direction="vertical" size={0}>
+              <Space>
+                <ShopOutlined style={{ color: '#52c41a' }} />
+                <Text style={{ color: '#52c41a' }}>{r.retailer.businessName}</Text>
+              </Space>
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                {r.retailer.retailerId} · {r.retailer.status}
+              </Text>
+            </Space>
+          )
+        }
+        return <Tag color="warning">Unmatched — not an active retailer</Tag>
+      },
+    },
+    {
+      title: 'Message',
+      dataIndex: 'messageBody',
+      key: 'messageBody',
+      render: (body, r) => (
+        <Space direction="vertical" size={0}>
+          <Tag color="#6754A3" style={{ marginBottom: 4 }}>{r.messageType}</Tag>
+          <Text ellipsis style={{ maxWidth: 260 }}>{body || '(no text)'}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: 'Status',
+      key: 'isRead',
+      width: 90,
+      render: (_, r) => (
+        <Tag color={r.isRead ? 'default' : '#15B9A4'}>{r.isRead ? 'Read' : 'New'}</Tag>
+      ),
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      width: 80,
+      render: (_, record) => (
+        <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewMessage(record)}>
+          View
+        </Button>
+      ),
+    },
+  ]
+
   const tabItems = [
     {
       key: 'configuration',
@@ -612,6 +722,80 @@ const WhatsAppIntegration = () => {
                 },
               }}
               locale={{ emptyText: isConfigured ? 'No templates yet. Click Sync Templates.' : 'Configure WhatsApp first.' }}
+            />
+          </Card>
+        </div>
+      ),
+    },
+    {
+      key: 'webhookInbox',
+      label: (
+        <span>
+          <InboxOutlined />
+          Webhook Inbox
+          {inboxUnread > 0 && (
+            <Tag color="#15B9A4" style={{ marginLeft: 6, fontSize: 11, padding: '0 5px', lineHeight: '18px' }}>
+              {inboxUnread}
+            </Tag>
+          )}
+        </span>
+      ),
+      children: (
+        <div>
+          <Card
+            title={
+              <Space>
+                <InboxOutlined style={{ color: '#15B9A4' }} />
+                <Title level={4} style={{ margin: 0, color: '#15B9A4' }}>
+                  Incoming Webhook Messages
+                </Title>
+              </Space>
+            }
+            extra={
+              <Space>
+                <Select
+                  value={inboxFilter}
+                  onChange={(v) => { setInboxFilter(v); setInboxPage(1) }}
+                  style={{ width: 160 }}
+                  options={[
+                    { value: 'all', label: 'All Messages' },
+                    { value: 'matched', label: 'Active Retailers' },
+                    { value: 'unmatched', label: 'Unmatched' },
+                    { value: 'unread', label: 'Unread' },
+                  ]}
+                />
+                <Button icon={<ReloadOutlined />} onClick={refetchInbox}>Refresh</Button>
+                {inboxUnread > 0 && (
+                  <Button onClick={() => markRead([])}>Mark all read</Button>
+                )}
+              </Space>
+            }
+            loading={inboxLoading}
+          >
+            <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+              Messages received via the WhatsApp webhook. Only <strong>active</strong> retailers are auto-matched by their WhatsApp number.
+            </Text>
+            {inboxUnread > 0 && (
+              <div style={{ marginBottom: 16, padding: '10px 16px', background: '#e6f7ff', borderRadius: 4 }}>
+                <Text style={{ color: '#1890ff' }}>
+                  <InboxOutlined /> {inboxUnread} unread message{inboxUnread !== 1 ? 's' : ''}
+                </Text>
+              </div>
+            )}
+            <Table
+              columns={inboxColumns}
+              dataSource={inboxMessages.map((m) => ({ ...m, key: m._id }))}
+              pagination={{
+                current: inboxPage,
+                pageSize: inboxPageSize,
+                total: inboxTotal,
+                showSizeChanger: true,
+                pageSizeOptions: ['10', '20', '50'],
+                showTotal: (t) => `Total ${t} messages`,
+                onChange: (p, ps) => { setInboxPage(p); setInboxPageSize(ps || 20) },
+              }}
+              rowClassName={(r) => r.isRead ? '' : 'webhook-inbox-unread'}
+              locale={{ emptyText: 'No incoming messages yet. Messages will appear here once your webhook URL receives data.' }}
             />
           </Card>
         </div>
@@ -892,6 +1076,106 @@ const WhatsAppIntegration = () => {
         styles={{ body: { maxHeight: '70vh', overflowY: 'auto' } }}
       >
         <Text>Are you sure you want to disconnect this integration? All configuration will be lost.</Text>
+      </Modal>
+
+      {/* Webhook Message Detail Modal */}
+      <Modal
+        title={
+          <Space>
+            <MessageOutlined style={{ color: '#15B9A4' }} />
+            <span>Message Detail</span>
+          </Space>
+        }
+        open={messageDrawerOpen}
+        onCancel={() => { setMessageDrawerOpen(false); setSelectedMessage(null) }}
+        footer={null}
+        width={640}
+        styles={{ body: { maxHeight: '75vh', overflowY: 'auto' } }}
+      >
+        {selectedMessage && (
+          <div>
+            {/* Retailer Info */}
+            <Card
+              size="small"
+              style={{ marginBottom: 16, background: selectedMessage.retailerMatched ? '#f6ffed' : '#fffbe6' }}
+            >
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Space>
+                  <ShopOutlined style={{ color: selectedMessage.retailerMatched ? '#52c41a' : '#faad14' }} />
+                  <Text strong>Retailer</Text>
+                  {selectedMessage.retailerMatched
+                    ? <Tag color="success">Active Retailer</Tag>
+                    : <Tag color="warning">Unmatched — not an active retailer</Tag>
+                  }
+                </Space>
+                {selectedMessage.retailerMatched && selectedMessage.retailer ? (
+                  <div style={{ paddingLeft: 22 }}>
+                    <div><Text type="secondary">Business: </Text><Text strong>{selectedMessage.retailer.businessName}</Text></div>
+                    {selectedMessage.retailer.storeName && (
+                      <div><Text type="secondary">Store: </Text><Text>{selectedMessage.retailer.storeName}</Text></div>
+                    )}
+                    <div><Text type="secondary">Contact: </Text><Text>{selectedMessage.retailer.contactPerson}</Text></div>
+                    <div><Text type="secondary">Retailer ID: </Text><Text>{selectedMessage.retailer.retailerId}</Text></div>
+                    <div>
+                      <Text type="secondary">Status: </Text>
+                      <Tag color="success">{selectedMessage.retailer.status}</Tag>
+                    </div>
+                    {selectedMessage.retailer.city && (
+                      <div><Text type="secondary">Location: </Text><Text>{selectedMessage.retailer.city}, {selectedMessage.retailer.state}</Text></div>
+                    )}
+                  </div>
+                ) : (
+                  <Text type="secondary" style={{ paddingLeft: 22 }}>
+                    No active retailer found with WhatsApp number +{selectedMessage.from}
+                  </Text>
+                )}
+              </Space>
+            </Card>
+
+            {/* Message Info */}
+            <Card size="small" style={{ marginBottom: 16 }}>
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <div>
+                  <Text type="secondary">From: </Text>
+                  <Text strong>+{selectedMessage.from}</Text>
+                  {selectedMessage.fromName && <Text type="secondary"> ({selectedMessage.fromName})</Text>}
+                </div>
+                <div>
+                  <Text type="secondary">Type: </Text>
+                  <Tag color="#6754A3">{selectedMessage.messageType}</Tag>
+                </div>
+                <div>
+                  <Text type="secondary">Received: </Text>
+                  <Text>{selectedMessage.createdAt ? new Date(selectedMessage.createdAt).toLocaleString() : '—'}</Text>
+                </div>
+                {selectedMessage.timestamp && (
+                  <div>
+                    <Text type="secondary">WhatsApp timestamp: </Text>
+                    <Text>{new Date(selectedMessage.timestamp).toLocaleString()}</Text>
+                  </div>
+                )}
+              </Space>
+            </Card>
+
+            {/* Message Body */}
+            {selectedMessage.messageBody && (
+              <Card size="small" title="Message" style={{ marginBottom: 16 }}>
+                <Text>{selectedMessage.messageBody}</Text>
+              </Card>
+            )}
+
+            {/* Raw Payload */}
+            <Card
+              size="small"
+              title="Raw Webhook Payload"
+              extra={<Text type="secondary" style={{ fontSize: 11 }}>For debugging</Text>}
+            >
+              <pre style={{ fontSize: 11, maxHeight: 220, overflow: 'auto', margin: 0, background: '#f5f5f5', padding: 8, borderRadius: 4 }}>
+                {JSON.stringify(selectedMessage.rawPayload, null, 2)}
+              </pre>
+            </Card>
+          </div>
+        )}
       </Modal>
     </div>
   )

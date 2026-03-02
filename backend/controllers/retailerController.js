@@ -1,6 +1,7 @@
 const mongoose = require('mongoose')
 const Retailer = require('../models/Retailer')
 const { validateFileType, uploadToCloudinary } = require('../utils/uploadCloudinary')
+const { generateRetailerId } = require('../utils/retailerId')
 const XLSX = require('xlsx')
 
 const MANDATORY_IMPORT_COLUMNS = [
@@ -18,6 +19,7 @@ const MANDATORY_IMPORT_COLUMNS = [
 ]
 const ALLOWED_IMPORT_COLUMNS = new Set([
   ...MANDATORY_IMPORT_COLUMNS,
+  'storeName',
   'email',
   'street2',
   'branches',
@@ -50,6 +52,8 @@ function normalizeRow(row) {
     pannumber: 'pan',
     panno: 'pan',
     email: 'email',
+    emailid: 'email',
+    emailaddress: 'email',
   }
   for (const [k, v] of Object.entries(row)) {
     const key = String(k || '').trim()
@@ -93,6 +97,7 @@ async function list(req, res) {
       const s = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
       const regex = new RegExp(s, 'i')
       query.$or = [
+        { retailerId: regex },
         { businessName: regex },
         { storeName: regex },
         { contactPerson: regex },
@@ -164,6 +169,7 @@ async function create(req, res) {
     if (req.user?.role && ['admin', 'superadmin', 'executive'].includes(req.user.role)) {
       body.createdBy = req.user.id
     }
+    body.retailerId = await generateRetailerId()
     if (!body.status) body.status = 'pending_approval'
     const retailer = await Retailer.create(body)
     const populated = await Retailer.findById(retailer._id).populate('createdBy', 'name email').lean()
@@ -243,7 +249,7 @@ async function approve(req, res) {
     if (r.status !== 'pending_approval') {
       return res.status(400).json({ success: false, message: 'Retailer is not pending approval' })
     }
-    r.status = 'approved'
+    r.status = 'active'
     r.approvedAt = new Date()
     await r.save()
     let retailer = r.toObject ? r.toObject() : r
@@ -355,6 +361,7 @@ async function exportRetailers(req, res) {
     if (search && search.trim()) {
       const s = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
       query.$or = [
+        { retailerId: new RegExp(s, 'i') },
         { businessName: new RegExp(s, 'i') },
         { storeName: new RegExp(s, 'i') },
         { contactPerson: new RegExp(s, 'i') },
@@ -371,6 +378,7 @@ async function exportRetailers(req, res) {
 
     const list = await Retailer.find(query).populate('createdBy', 'name email').sort({ createdAt: -1 }).lean()
     const rows = list.map((r) => ({
+      RetailerId: r.retailerId || '',
       BusinessName: r.businessName,
       StoreName: r.storeName || '',
       ContactPerson: r.contactPerson,
@@ -392,6 +400,9 @@ async function exportRetailers(req, res) {
       CreatedBy: r.createdBy?.name || r.createdBy?.email || '',
       CreatedAt: r.createdAt ? new Date(r.createdAt).toISOString() : '',
     }))
+    if (!rows.length) {
+      return res.status(400).json({ success: false, message: 'No data to export' })
+    }
     const wb = XLSX.utils.book_new()
     const ws = XLSX.utils.json_to_sheet(rows)
     XLSX.utils.book_append_sheet(wb, ws, 'Retailers')
@@ -440,11 +451,44 @@ async function importSample(req, res) {
   }
 }
 
+function applyMapping(rawRow, mapping) {
+  if (!mapping || typeof mapping !== 'object') return null
+  const out = {}
+  const rawKeys = Object.keys(rawRow || {}).reduce((acc, k) => { acc[String(k).trim()] = rawRow[k]; return acc }, {})
+  for (const [excelHeader, appField] of Object.entries(mapping)) {
+    if (!appField || appField === '') continue
+    const val = rawKeys[String(excelHeader).trim()]
+    if (val === undefined || val === null) continue
+    const s = typeof val === 'string' ? val.trim() : String(val).trim()
+    if (s === '') continue
+    if (appField === 'branches') {
+      const n = parseInt(s, 10)
+      out[appField] = (Number.isNaN(n) || n < 1) ? 1 : n
+    } else {
+      out[appField] = s
+    }
+  }
+  return out
+}
+
 async function importRetailers(req, res) {
   try {
     if (!req.file || !req.file.buffer) {
       return res.status(400).json({ success: false, message: 'No file uploaded' })
     }
+    let mapping = null
+    const rawBody = req.body && typeof req.body === 'object' ? req.body : {}
+    const mappingRaw = rawBody.mapping
+    if (mappingRaw) {
+      try {
+        mapping = typeof mappingRaw === 'string' ? JSON.parse(mappingRaw) : mappingRaw
+        if (mapping && typeof mapping !== 'object') mapping = null
+        if (mapping && Object.keys(mapping).length === 0) mapping = null
+      } catch (_) {
+        return res.status(400).json({ success: false, message: 'Invalid mapping JSON' })
+      }
+    }
+
     const wb = XLSX.read(req.file.buffer, { type: 'buffer' })
     const firstSheet = wb.SheetNames[0]
     const ws = wb.Sheets[firstSheet]
@@ -456,7 +500,20 @@ async function importRetailers(req, res) {
     const seenEmail = new Set()
 
     for (let i = 0; i < raw.length; i++) {
-      const row = normalizeRow(raw[i])
+      let row = null
+      if (mapping) {
+        row = { ...normalizeRow(raw[i]), ...(applyMapping(raw[i], mapping) || {}) }
+      } else {
+        row = normalizeRow(raw[i])
+      }
+      if (mapping && row) {
+        const trimmed = {}
+        for (const [k, v] of Object.entries(row)) {
+          if (v != null && ALLOWED_IMPORT_COLUMNS.has(k)) trimmed[k] = k === 'branches' ? (Number(v) || 1) : String(v).trim()
+        }
+        row = trimmed
+      }
+      if (!row || Object.keys(row).length === 0) continue
       const missing = MANDATORY_IMPORT_COLUMNS.filter((col) => !(row[col] != null && String(row[col]).trim() !== ''))
       if (missing.length) {
         errors.push({ row: i + 2, message: `Missing mandatory: ${missing.join(', ')}` })
@@ -494,10 +551,11 @@ async function importRetailers(req, res) {
 
       const trim = (s) => (s != null ? String(s).trim() : '')
       const doc = {
+        retailerId: await generateRetailerId(),
         businessName: trim(row.businessName),
         storeName: trim(row.storeName) || '',
         contactPerson: trim(row.contactPerson),
-        email: trim(row.email).toLowerCase() || '',
+        email: (trim(row.email) || '').toLowerCase(),
         whatsappCountryCode: trim(row.whatsappCountryCode) || '+91',
         whatsappNumber: trim(row.whatsappNumber),
         altContactCountryCode: trim(row.altContactCountryCode) || '',
@@ -512,7 +570,7 @@ async function importRetailers(req, res) {
         pincode: trim(row.pincode),
         branches: Number.isNaN(parseInt(row.branches, 10)) ? 1 : Math.max(1, parseInt(row.branches, 10)),
         status: 'pending_approval',
-        createdBy: createdBy || undefined,
+        createdBy: createdBy ? (mongoose.Types.ObjectId.isValid(createdBy) ? new mongoose.Types.ObjectId(createdBy) : undefined) : undefined,
       }
       const created = await Retailer.create(doc)
       inserted.push(created._id)
@@ -524,8 +582,9 @@ async function importRetailers(req, res) {
       errors: errors.length ? errors : undefined,
     })
   } catch (err) {
-    console.error(err)
-    return res.status(500).json({ success: false, message: err.message || 'Import failed' })
+    console.error('Import error:', err)
+    const msg = err.message || 'Import failed'
+    return res.status(500).json({ success: false, message: msg })
   }
 }
 
@@ -554,7 +613,13 @@ async function stats(req, res) {
         rejectedAt: { $gte: todayStart, $lt: todayEnd },
       }),
       Retailer.countDocuments({ ...baseQuery, status: 'rejected' }),
-      isAdmin ? Retailer.find(approvedTodayQuery).select('businessName storeName approvedAt').sort({ approvedAt: -1 }).lean() : [],
+      isAdmin
+        ? Retailer.find(approvedTodayQuery)
+            .select('retailerId businessName storeName approvedAt createdBy')
+            .populate('createdBy', 'name email')
+            .sort({ approvedAt: -1 })
+            .lean()
+        : [],
     ])
 
     const activeCount = await Retailer.countDocuments({ status: 'active' })
@@ -571,8 +636,10 @@ async function stats(req, res) {
     if (isAdmin && Array.isArray(approvedTodayList)) {
       statsPayload.approvedTodayList = approvedTodayList.map((r) => ({
         _id: r._id,
+        retailerId: r.retailerId || '',
         businessName: r.businessName,
         storeName: r.storeName,
+        agentName: r.createdBy?.name || r.createdBy?.email || '-',
         approvedAt: r.approvedAt ? new Date(r.approvedAt).toISOString() : null,
       }))
     }

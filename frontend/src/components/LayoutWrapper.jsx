@@ -67,12 +67,15 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
 
   const getSelectedKey = () => {
     const path = location.pathname
-    if (path.includes('dashboard')) return '1'
-    if (path.includes('orders')) return '2'
-    if (path.includes('retailer') || path.includes('customer')) return '3'
-    if (path.includes('agent-management')) return '4'
-    if (path.includes('whatsapp')) return '5'
-    return defaultSelectedKey
+    const normalizedPath = path.endsWith('/') ? path.slice(0, -1) : path
+    const matched = [...menuItems]
+      .filter((item) => item?.path)
+      .sort((a, b) => String(b.path).length - String(a.path).length)
+      .find((item) => {
+        const itemPath = String(item.path).endsWith('/') ? String(item.path).slice(0, -1) : String(item.path)
+        return normalizedPath === itemPath || normalizedPath.startsWith(`${itemPath}/`)
+      })
+    return matched?.key || defaultSelectedKey
   }
 
   const handleMenuClick = ({ key }) => {
@@ -88,6 +91,7 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
   }
 
   const isAdminOrSuperadmin = user?.role === 'superadmin' || user?.role === 'admin'
+  const userPhone = [user?.mobileCountryCode, user?.mobileNumber].filter(Boolean).join(' ').trim() || user?.phone || user?.mobile || '—'
 
   const userMenuItems = [
     {
@@ -475,6 +479,10 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
             <div style={{ marginTop: '4px', fontSize: '15px', color: isDark ? '#fff' : '#000' }}>
               {user?.role ? ROLE_LABELS[user.role] || user.role : '—'}
             </div>
+          </div>
+          <div>
+            <Text type="secondary" style={{ fontSize: '12px', textTransform: 'uppercase' }}>Phone Number</Text>
+            <div style={{ marginTop: '4px', fontSize: '15px', color: isDark ? '#fff' : '#000' }}>{userPhone}</div>
           </div>
 
           <Divider style={{ margin: '8px 0' }} />

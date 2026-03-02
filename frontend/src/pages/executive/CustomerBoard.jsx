@@ -14,6 +14,7 @@ import {
 } from '@ant-design/icons'
 import Breadcrumbs from '../../components/Breadcrumbs'
 import PhoneInput from '../../components/PhoneInput'
+import ImportRetailersModal from '../../components/ImportRetailersModal'
 import { useAuth } from '../../context/AuthContext'
 import {
   useGetRetailersQuery,
@@ -53,8 +54,6 @@ const CustomerBoard = () => {
   const [form] = Form.useForm()
   const [createForm] = Form.useForm()
   const [importModalVisible, setImportModalVisible] = useState(false)
-  const [importFile, setImportFile] = useState(null)
-  const [importing, setImporting] = useState(false)
   const [viewModalVisible, setViewModalVisible] = useState(false)
   const [viewRetailer, setViewRetailer] = useState(null)
 
@@ -78,10 +77,12 @@ const CustomerBoard = () => {
   const [triggerExport, { isLoading: exporting }] = useLazyExportRetailersQuery()
   const [triggerSample, { isLoading: sampleLoading }] = useLazyDownloadImportSampleQuery()
   const [importRetailers, { isLoading: importMutationLoading }] = useImportRetailersMutation()
+  const handleImportSuccess = useCallback(({ imported }) => { if (imported > 0) setActiveTab('requests') }, [])
 
   const isOwn = (record) => user?._id && record.createdById === user._id
 
   const requestColumns = [
+    { title: 'Retailer ID', dataIndex: 'retailerId', key: 'retailerId', render: (v) => v || '-' },
     { title: 'Business Name', dataIndex: 'businessName', key: 'businessName' },
     { title: 'Store Name', dataIndex: 'storeName', key: 'storeName', render: (v) => v || '—' },
     { title: 'Contact Person', dataIndex: 'contactPerson', key: 'contactPerson' },
@@ -268,6 +269,10 @@ const CustomerBoard = () => {
   }
 
   const handleExport = async () => {
+    if (!retailers.length) {
+      message.error('No data to export')
+      return
+    }
     try {
       const blob = await triggerExport(listParams).unwrap()
       downloadExportBlob(blob)
@@ -284,35 +289,6 @@ const CustomerBoard = () => {
       message.success('Sample file downloaded')
     } catch (e) {
       message.error(e?.data?.message || e?.message || 'Download failed')
-    }
-  }
-
-  const handleImport = async () => {
-    if (!importFile) {
-      message.warning('Please select a file')
-      return
-    }
-    setImporting(true)
-    try {
-      const formData = new FormData()
-      formData.append('file', importFile)
-      const result = await importRetailers(formData).unwrap()
-      setImportModalVisible(false)
-      setImportFile(null)
-      if (result.imported > 0) {
-        setActiveTab('requests')
-        message.success(`${result.imported} retailer(s) imported. View them in My Requests.${result.errors?.length ? ` ${result.errors.length} row(s) had errors.` : ''}`)
-      } else {
-        const errMsg = result.errors?.length
-          ? `No rows imported. ${result.errors.length} row(s) had errors (check headers match sample and no duplicate WhatsApp/email).`
-          : 'No rows imported. Check that column headers match the sample file.'
-        message.warning(errMsg)
-      }
-      if (result.errors?.length) console.warn('Import errors:', result.errors)
-    } catch (e) {
-      message.error(e?.data?.message || e?.message || 'Import failed')
-    } finally {
-      setImporting(false)
     }
   }
 
@@ -491,7 +467,7 @@ const CustomerBoard = () => {
         <Title level={2}>Customer Board</Title>
         <Space wrap>
           <Input
-            placeholder="Search by Business Name, Store, Contact, GST"
+            placeholder="Search by Retailer ID, Business Name, Store, Contact, GST"
             prefix={<SearchOutlined />}
             style={{ width: 280 }}
             value={searchText}
@@ -572,6 +548,7 @@ const CustomerBoard = () => {
       >
         {viewRetailer && (() => {
           const viewRows = [
+            { key: '0', field: 'Retailer ID', value: viewRetailer.retailerId || '-' },
             { key: '1', field: 'Business Name', value: viewRetailer.businessName },
             { key: '2', field: 'Store Name', value: viewRetailer.storeName || '—' },
             { key: '3', field: 'Contact Person', value: viewRetailer.contactPerson },
@@ -603,50 +580,16 @@ const CustomerBoard = () => {
         })()}
       </Modal>
 
-      <Modal
+      <ImportRetailersModal
         title="Import Wholesalers / Customers"
         open={importModalVisible}
-        onCancel={() => {
-          setImportModalVisible(false)
-          setImportFile(null)
-        }}
-        styles={{ body: { maxHeight: 'none', overflow: 'visible', overflowX: 'hidden' } }}
-        footer={[
-          <Button key="cancel" onClick={() => { setImportModalVisible(false); setImportFile(null); }}>
-            Cancel
-          </Button>,
-          <Button key="sample" icon={<DownloadOutlined />} onClick={handleDownloadSample} loading={sampleLoading}>
-            Download Sample
-          </Button>,
-          <Button key="submit" type="primary" onClick={handleImport} loading={importing || importMutationLoading} disabled={!importFile}>
-            Upload & Import
-          </Button>,
-        ]}
-        width={520}
-      >
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="Only mandatory columns are allowed. Duplicate WhatsApp number or email (in DB or in file) will be skipped."
-        />
-        <p style={{ marginBottom: 12 }}>
-          Allowed columns: Business Name, Store Name, Contact Person, WhatsApp Country Code, WhatsApp Number, Email, GST, PAN, Street1, Street2, City, District, State, Pincode, Branches, Alt Contact Country Code, Alt Contact Number.
-        </p>
-        <Upload.Dragger
-          maxCount={1}
-          accept=".xlsx,.xls,.csv"
-          beforeUpload={(file) => {
-            setImportFile(file)
-            return false
-          }}
-          onRemove={() => setImportFile(null)}
-          fileList={importFile ? [{ name: importFile.name, uid: '-1' }] : []}
-        >
-          <p className="ant-upload-text">Click or drag file to this area</p>
-          <p className="ant-upload-hint">Excel or CSV only. No extra columns.</p>
-        </Upload.Dragger>
-      </Modal>
+        onCancel={() => setImportModalVisible(false)}
+        onSuccess={handleImportSuccess}
+        onDownloadSample={handleDownloadSample}
+        importMutation={[importRetailers, { isLoading: importMutationLoading }]}
+        sampleLoading={sampleLoading}
+        successMessageFragment="View them in My Requests."
+      />
     </div>
   )
 }
