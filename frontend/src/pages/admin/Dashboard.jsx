@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Row, Col, Card, Statistic, Table, DatePicker, Space, Typography } from 'antd'
+import { Row, Col, Card, Statistic, DatePicker, Space, Typography, Empty } from 'antd'
 import {
   UserOutlined,
   CheckCircleOutlined,
@@ -10,6 +10,10 @@ import {
   DollarOutlined,
   CarOutlined,
 } from '@ant-design/icons'
+import {
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+  PieChart, Pie, Cell, Legend,
+} from 'recharts'
 import Breadcrumbs from '../../components/Breadcrumbs'
 import dayjs from 'dayjs'
 import { useGetRetailerStatsQuery } from '../../store/api/retailerApi'
@@ -18,9 +22,11 @@ import { useGetOrderStatsQuery, useGetOrdersQuery } from '../../store/api/orderA
 const { RangePicker } = DatePicker
 const { Title } = Typography
 
+const RETAILER_PIE_COLORS = ['#52c41a', '#faad14', '#ff4d4f']
+
 const AdminDashboard = () => {
   const navigate = useNavigate()
-  const [dateRange, setDateRange] = useState(null)
+  const [dateRange, setDateRange] = useState([dayjs().startOf('month'), dayjs()])
   const { data: statsData } = useGetRetailerStatsQuery()
   const s = statsData?.stats ?? {}
 
@@ -28,7 +34,6 @@ const AdminDashboard = () => {
     ? `${dateRange[0].format('DD/MM/YYYY')} - ${dateRange[1].format('DD/MM/YYYY')}`
     : 'All Time'
 
-  // Build date params for stats & recent orders query
   const dateParams = useMemo(() => {
     if (!dateRange?.[0] || !dateRange?.[1]) return {}
     return {
@@ -40,11 +45,30 @@ const AdminDashboard = () => {
   const { data: orderStatsData, isLoading: statsLoading } = useGetOrderStatsQuery(dateParams)
   const os = orderStatsData?.data ?? {}
 
-  const { data: recentData, isLoading: recentLoading } = useGetOrdersQuery(
-    { ...dateParams, limit: 10 },
+  const { data: ordersData } = useGetOrdersQuery(
+    { ...dateParams, limit: 300 },
     { refetchOnMountOrArgChange: 60 }
   )
-  const recentOrders = recentData?.data?.orders || []
+  const orders = ordersData?.data?.orders || []
+
+  // Line chart — orders per day
+  const ordersLineData = useMemo(() => {
+    const dailyMap = {}
+    orders.forEach((o) => {
+      const key = dayjs(o.createdAt).format('YYYY-MM-DD')
+      const label = dayjs(o.createdAt).format('DD MMM')
+      if (!dailyMap[key]) dailyMap[key] = { date: label, Orders: 0 }
+      dailyMap[key].Orders++
+    })
+    return Object.keys(dailyMap).sort().map((k) => dailyMap[k])
+  }, [orders])
+
+  // Pie chart — retailer status breakdown
+  const retailerPieData = useMemo(() => [
+    { name: 'Onboarded', value: Number(s.onboarded) || 0, color: '#52c41a' },
+    { name: 'Pending', value: Number(s.pendingApprovals) || 0, color: '#faad14' },
+    { name: 'Rejected', value: Number(s.rejectedTotal) || 0, color: '#ff4d4f' },
+  ].filter((d) => d.value > 0), [s])
 
   const vendorStats = [
     { title: 'Total Retailers', value: s.totalRetailers ?? '—', icon: <UserOutlined />, color: '#15B9A4' },
@@ -79,39 +103,6 @@ const AdminDashboard = () => {
       value: statsLoading ? '—' : `₹${(os.totalRevenue ?? 0).toLocaleString('en-IN')}`,
       icon: <DollarOutlined />,
       color: '#15B9A4',
-    },
-  ]
-
-  const recentOrdersColumns = [
-    { title: 'Order ID', dataIndex: 'orderId', key: 'orderId', render: (v) => <strong>{v}</strong> },
-    {
-      title: 'Name',
-      key: 'name',
-      render: (_, r) => r.contactName || r.fromName || r.retailer?.businessName || '-',
-    },
-    {
-      title: 'Amount',
-      dataIndex: 'amount',
-      key: 'amount',
-      render: (v) => `₹${(v || 0).toLocaleString('en-IN')}`,
-    },
-    {
-      title: 'Payment Status',
-      dataIndex: 'paymentStatus',
-      key: 'paymentStatus',
-      render: (v) => v || 'Pending',
-    },
-    {
-      title: 'Final Status',
-      dataIndex: 'finalStatus',
-      key: 'finalStatus',
-      render: (v) => v || 'Open',
-    },
-    {
-      title: 'Date',
-      dataIndex: 'createdAt',
-      key: 'createdAt',
-      render: (v) => (v ? dayjs(v).format('DD/MM/YYYY') : '-'),
     },
   ]
 
@@ -158,19 +149,53 @@ const AdminDashboard = () => {
         ))}
       </Row>
 
-      {/* <Card title={`Recent Orders (${rangeLabel})`} style={{ marginTop: 24 }}>
-        <Table
-          columns={recentOrdersColumns}
-          dataSource={recentOrders.map((o) => ({ ...o, key: o._id }))}
-          loading={recentLoading}
-          pagination={false}
-          size="middle"
-          onRow={(record) => ({
-            onClick: () => navigate(`/admin/orders/${record.orderId}`),
-            style: { cursor: 'pointer' },
-          })}
-        />
-      </Card> */}
+      {/* Charts */}
+      <Row gutter={[16, 16]}>
+        <Col xs={24} lg={14}>
+          <Card title={`Orders by Date (${rangeLabel})`}>
+            {ordersLineData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={ordersLineData} margin={{ top: 4, right: 16, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="Orders" stroke="#15B9A4" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <Empty description="No order data for selected period" style={{ padding: 40 }} />
+            )}
+          </Card>
+        </Col>
+        <Col xs={24} lg={10}>
+          <Card title="Retailer Status Breakdown">
+            {retailerPieData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={retailerPieData}
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={75}
+                    dataKey="value"
+                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                    labelLine
+                  >
+                    {retailerPieData.map((entry, i) => (
+                      <Cell key={i} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Legend />
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <Empty description="No retailer data" style={{ padding: 40 }} />
+            )}
+          </Card>
+        </Col>
+      </Row>
     </div>
   )
 }

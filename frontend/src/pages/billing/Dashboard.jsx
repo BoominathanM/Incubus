@@ -19,7 +19,7 @@ const { RangePicker } = DatePicker
 const PIE_COLORS = ['#52c41a', '#faad14', '#d9d9d9']
 
 const BillingDashboard = () => {
-  const [dateRange, setDateRange] = useState(null)
+  const [dateRange, setDateRange] = useState([dayjs().startOf('month'), dayjs()])
 
   const dateParams = useMemo(() => {
     if (!dateRange?.[0] || !dateRange?.[1]) return {}
