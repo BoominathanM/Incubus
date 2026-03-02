@@ -46,14 +46,7 @@ exports.receiveRetailerWebhook = async (req, res) => {
         const contacts  = Array.isArray(value?.contacts) ? value.contacts : []
         const metadata  = value?.metadata || {}
 
-        // Extract catalogId from payload if present (order/catalog messages)
-        const catalogId =
-          value?.catalog_id ||
-          value?.catalogId ||
-          body?.catalog_id ||
-          body?.catalogId ||
-          null
-
+        // ── Process standard + order-type messages ────────────────────────────
         for (const msg of messages) {
           const from = toDigits(msg.from)
 
@@ -61,25 +54,41 @@ exports.receiveRetailerWebhook = async (req, res) => {
           const contact = contacts.find((c) => toDigits(c.wa_id) === from)
           const fromName = contact?.profile?.name || ''
 
-          // Message type & body
           const messageType = msg.type || 'text'
-          const messageBody =
-            msg.text?.body ||
-            msg.image?.caption ||
-            msg.document?.caption ||
-            msg.video?.caption ||
-            msg.caption ||
-            ''
 
-          // Timestamp
+          // Extract body — handles text, media captions, and WhatsApp order type
+          let messageBody = ''
+          if (msg.text?.body) {
+            messageBody = msg.text.body
+          } else if (msg.order) {
+            // WhatsApp catalog order message
+            const items = Array.isArray(msg.order?.product_items) ? msg.order.product_items : []
+            messageBody = items.map((i) => `${i.product_retailer_id} x${i.quantity}`).join(', ')
+              || `Catalog order: ${msg.order?.catalog_id || ''}`
+          } else if (msg.image?.caption) {
+            messageBody = msg.image.caption
+          } else if (msg.document?.caption) {
+            messageBody = msg.document.caption
+          } else if (msg.video?.caption) {
+            messageBody = msg.video.caption
+          } else if (msg.caption) {
+            messageBody = msg.caption
+          }
+
+          // Extract catalogId — check order payload first, then value, then root body
+          const catalogId =
+            msg?.order?.catalog_id ||
+            value?.catalog_id ||
+            value?.catalogId ||
+            body?.catalog_id ||
+            body?.catalogId ||
+            null
+
           const timestamp = msg.timestamp
             ? new Date(parseInt(msg.timestamp, 10) * 1000)
             : new Date()
 
-          // ── Active retailer lookup (informational only — stored regardless) ─
-          const activeRetailer = from
-            ? await findActiveRetailer(from)
-            : null
+          const activeRetailer = from ? await findActiveRetailer(from) : null
 
           try {
             const record = await WebhookMessage.create({
@@ -95,7 +104,6 @@ exports.receiveRetailerWebhook = async (req, res) => {
               rawPayload:      body,
             })
 
-            // Populate retailer so response has full data
             const populated = await WebhookMessage.findById(record._id)
               .populate('retailer', 'retailerId businessName storeName contactPerson email whatsappNumber whatsappCountryCode city state status')
               .lean()
@@ -116,11 +124,65 @@ exports.receiveRetailerWebhook = async (req, res) => {
             })
 
             console.log(
-              `[RetailerWebhook] Stored | from: +${from} | retailer: ${activeRetailer?.businessName || 'none'} | msg: "${messageBody}"`
+              `[RetailerWebhook] Stored | from: +${from} | type: ${messageType} | catalogId: ${catalogId || 'none'} | retailer: ${activeRetailer?.businessName || 'none'}`
             )
           } catch (saveErr) {
             console.error('[RetailerWebhook] Save error:', saveErr.message)
             errors.push({ from, error: saveErr.message })
+          }
+        }
+
+        // ── No messages in this change — store as catalog/notification event ──
+        // This covers catalog updates, status changes, and Askeva test events
+        if (messages.length === 0) {
+          const firstContact = contacts[0]
+          const from = firstContact ? toDigits(firstContact.wa_id) : ''
+          const fromName = firstContact?.profile?.name || ''
+          const catalogId =
+            value?.catalog_id || value?.catalogId ||
+            body?.catalog_id || body?.catalogId || null
+
+          const activeRetailer = from ? await findActiveRetailer(from) : null
+
+          try {
+            const record = await WebhookMessage.create({
+              companyId,
+              messageId:       '',
+              from:            from || 'catalog_event',
+              fromName,
+              messageType:     'catalog_notification',
+              messageBody:     '',
+              timestamp:       new Date(),
+              retailer:        activeRetailer?._id || null,
+              retailerMatched: !!activeRetailer,
+              rawPayload:      body,
+            })
+
+            const populated = await WebhookMessage.findById(record._id)
+              .populate('retailer', 'retailerId businessName storeName contactPerson email whatsappNumber whatsappCountryCode city state status')
+              .lean()
+
+            stored.push({
+              id:              populated._id,
+              from:            from || 'catalog_event',
+              fromName,
+              messageType:     'catalog_notification',
+              messageBody:     '',
+              timestamp:       populated.timestamp,
+              catalogId:       catalogId || null,
+              displayPhone:    metadata?.display_phone_number || '',
+              phoneNumberId:   metadata?.phone_number_id || '',
+              retailerMatched: !!activeRetailer,
+              retailer:        populated.retailer || null,
+              savedAt:         populated.createdAt,
+            })
+
+            console.log(
+              `[RetailerWebhook] Stored catalog event | from: ${from || 'catalog_event'} | catalogId: ${catalogId || 'none'}`
+            )
+          } catch (saveErr) {
+            console.error('[RetailerWebhook] Catalog event save error:', saveErr.message)
+            errors.push({ from: from || 'catalog_event', error: saveErr.message })
           }
         }
       }
