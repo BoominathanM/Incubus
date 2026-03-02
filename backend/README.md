@@ -7,8 +7,11 @@
 
 1. Copy `.env.example` to `.env` and set:
    - `PORT=7000`
+   - `BASE_URL` (your public URL, e.g. `https://your-domain.com` for production)
    - `MONGODB_URI=mongodb+srv://...`
    - `JWT_SECRET` (any string for production)
+   - `ASKEVA_COMPANY_ID` (default: `default`)
+   - `WEBHOOK_VERIFY_TOKEN` (optional; for webhook verification, default: `askeva_webhook_verify`)
 2. Install and run:
 
 ```bash
@@ -26,6 +29,15 @@ On every server start, the app checks for a user with email `superadmin@gmail.co
 - **Role:** superadmin  
 
 So if you clear the `users` collection and restart the backend, the Super Admin is re-seeded automatically.
+
+## Webhook URLs (for Askeva / WhatsApp)
+
+Configure one of these in your Askeva panel. Replace `BASE_URL` and `companyId` as needed:
+
+- **Main webhook:** `{BASE_URL}/api/askeva/webhook/{companyId}`
+- **Retailer webhook:** `{BASE_URL}/api/retailer-webhook/receive/{companyId}`
+
+Both support GET (verification) and POST (events). For Meta/WhatsApp verification, set `WEBHOOK_VERIFY_TOKEN` to match your provider's verify token.
 
 ## API
 

@@ -659,9 +659,38 @@ exports.sendMessage = async (req, res) => {
   }
 }
 
+/**
+ * GET /api/askeva/webhook/:companyId
+ * Webhook verification — Meta/WhatsApp and some providers send GET with hub.mode, hub.verify_token, hub.challenge.
+ * Must return hub.challenge to complete verification.
+ */
+exports.handleWebhookVerification = async (req, res) => {
+  try {
+    const { hub_mode, hub_verify_token, hub_challenge } = req.query
+    const mode = hub_mode || req.query['hub.mode']
+    const token = hub_verify_token || req.query['hub.verify_token']
+    const challenge = hub_challenge || req.query['hub.challenge']
+
+    if (mode === 'subscribe' && challenge) {
+      const verifyToken = process.env.WEBHOOK_VERIFY_TOKEN || 'askeva_webhook_verify'
+      if (!token || token === verifyToken) {
+        console.log('[Webhook] Verification successful')
+        return res.type('text/plain').status(200).send(String(challenge))
+      }
+    }
+    console.warn('[Webhook] Verification failed — mode:', mode, 'token present:', !!token)
+    return res.status(403).send('Verification failed')
+  } catch (err) {
+    console.error('[Webhook] Verification error:', err)
+    return res.status(500).send('Verification error')
+  }
+}
+
 exports.handleWebhook = async (req, res) => {
   try {
     const { companyId } = req.params
+
+    console.log('[Webhook] POST received for company:', companyId, '| body keys:', Object.keys(req.body || {}))
 
     // Optional signature verification — only if webhookSecret is stored
     const config = await AskevaConfig.findOne({ companyId }).select('+webhookSecret').lean()
@@ -689,72 +718,148 @@ exports.handleWebhook = async (req, res) => {
 }
 
 async function processWebhookPayload(companyId, body) {
-  const entries = body?.entry || []
-  for (const entry of entries) {
-    const changes = entry?.changes || []
-    for (const change of changes) {
-      const value = change?.value || {}
-      const messages = value?.messages || []
-      const contacts = value?.contacts || []
+  const { handleWebhookOrderEvent } = require('./orderController')
 
-      for (const msg of messages) {
+  // Support both direct Meta payload and wrapped payloads (e.g. { data: { entry: [...] } })
+  const entries = body?.entry || body?.data?.entry || []
+  if (entries.length === 0 && Object.keys(body || {}).length > 0) {
+    console.log('[Webhook] No entry in payload — raw body sample:', JSON.stringify(body).slice(0, 300))
+  }
+
+  for (const entry of entries) {
+    for (const change of (entry.changes || [])) {
+      const value = change.value || {}
+      const contacts = value.contacts || []
+
+      for (const msg of (value.messages || [])) {
         const fromNumber = (msg.from || '').replace(/\D/g, '')
         if (!fromNumber) continue
 
-        // Get sender display name from contacts array
         const contact = contacts.find((c) => (c.wa_id || '').replace(/\D/g, '') === fromNumber)
         const fromName = contact?.profile?.name || ''
-
-        // Determine message type and body
-        const messageType = msg.type || 'text'
-        let messageBody = ''
-        if (msg.text?.body) messageBody = msg.text.body
-        else if (msg.caption) messageBody = msg.caption
-        else if (msg.image?.caption) messageBody = msg.image.caption
-        else if (msg.document?.caption) messageBody = msg.document.caption
-
-        // Timestamp from WhatsApp (Unix seconds)
+        const msgType = msg.type || 'text'
         const ts = msg.timestamp ? new Date(parseInt(msg.timestamp, 10) * 1000) : new Date()
-
-        // Look up active retailer by WhatsApp number
         const retailer = await findActiveRetailerByPhone(fromNumber)
 
-        await WebhookMessage.create({
+        // ── Parse content per message type ───────────────────────────────────
+        let messageBody = ''
+        let orderItems = []
+        let catalogId = ''
+        let extraFields = {}
+        let shouldCreateOrder = false
+
+        if (msgType === 'order' && msg.order) {
+          // WhatsApp catalog order
+          catalogId = msg.order.catalog_id || ''
+          orderItems = (msg.order.product_items || []).map((pi) => ({
+            productRetailerId: pi.product_retailer_id || '',
+            quantity: Number(pi.quantity) || 1,
+          }))
+          messageBody = orderItems.map((i) => `${i.productRetailerId} x${i.quantity}`).join(', ')
+            || `Catalog order: ${catalogId}`
+          shouldCreateOrder = true
+
+        } else if (msgType === 'interactive' && msg.interactive?.type === 'nfm_reply') {
+          // WhatsApp Flow form submission
+          try {
+            const flowData = JSON.parse(msg.interactive.nfm_reply?.response_json || '{}')
+            orderItems = parseFlowItems(flowData)
+            extraFields = {
+              contactName:     flowData.name || flowData.full_name || flowData.contact_name || fromName || '',
+              contactNumber:   flowData.phone || flowData.phone_number || flowData.mobile || fromNumber || '',
+              deliveryAddress: flowData.address || flowData.delivery_address || flowData.shipping_address || '',
+            }
+            messageBody = `Flow order from ${fromName || fromNumber}`
+            shouldCreateOrder = true
+          } catch (_) { /* malformed JSON — skip order creation */ }
+
+        } else if (msgType === 'payment' && msg.payment) {
+          // WhatsApp Pay notification
+          const pay = msg.payment
+          extraFields = {
+            paymentStatus:  pay.status === 'captured' ? 'Success' : 'Pending',
+            transactionId:  pay.transaction_id || pay.reference_id || '',
+            paymentMode:    'WhatsApp Pay',
+          }
+          messageBody = `Payment ${pay.status || ''} - txn: ${pay.transaction_id || pay.reference_id || ''}`
+          shouldCreateOrder = true
+
+        } else {
+          messageBody = msg.text?.body || msg.caption || msg.image?.caption || msg.document?.caption || ''
+        }
+
+        // ── Store in WebhookMessage ───────────────────────────────────────────
+        const savedMsg = await WebhookMessage.create({
           companyId,
-          messageId: msg.id || '',
-          from: fromNumber,
+          messageId:       msg.id || '',
+          from:            fromNumber,
           fromName,
-          messageType,
+          messageType:     msgType,
           messageBody,
-          timestamp: ts,
-          retailer: retailer?._id || null,
+          timestamp:       ts,
+          retailer:        retailer?._id || null,
           retailerMatched: !!retailer,
-          rawPayload: { entry: body.entry },
+          rawPayload:      { entry: body.entry },
         })
 
-        console.log(
-          `[Webhook] Stored message from ${fromNumber} — Retailer: ${retailer?.businessName || 'unmatched'}`
-        )
+        console.log(`[Webhook] from: ${fromNumber} | type: ${msgType} | retailer: ${retailer?.businessName || 'none'} | stored msg _id: ${savedMsg._id}`)
+
+        // ── Auto-create/update order (one order per user flow) ──────────────────
+        if (shouldCreateOrder) {
+          handleWebhookOrderEvent({
+            msgType,
+            companyId,
+            webhookMessageId: savedMsg._id,
+            from:             fromNumber,
+            fromName,
+            retailerMatched:  !!retailer,
+            retailer:         retailer || null,
+            items:            orderItems,
+            catalogId,
+            messageBody,
+            extraFields,
+          }).catch((e) => console.error('[Webhook] Order creation/update failed:', e.message))
+        }
       }
 
-      // Also handle status updates (delivery receipts etc.) — just log them
-      const statuses = value?.statuses || []
-      if (statuses.length) {
-        console.log(`[Webhook] ${statuses.length} status update(s) received`)
+      if (value.statuses?.length) {
+        console.log(`[Webhook] ${value.statuses.length} status update(s) received`)
       }
     }
   }
 }
 
+function parseFlowItems(flowData) {
+  const raw = flowData.items || flowData.products || flowData.order_items || flowData.product || ''
+  const items = []
+  for (const part of String(raw).split(',')) {
+    const match = part.trim().match(/^(.+?)\s+x(\d+)$/i)
+    if (match) items.push({ productRetailerId: match[1].trim(), quantity: parseInt(match[2], 10) })
+  }
+  return items
+}
+
 exports.getWebhookMessages = async (req, res) => {
   try {
-    const companyId = getCompanyId(req)
+    // Support companyId from query; superadmin can pass companyId=all to see all companies
+    const queryCompanyId = req.query.companyId
+    let companyId = queryCompanyId || getCompanyId(req)
+    const isSuperAdmin = req.user?.role === 'superadmin'
+    const userHasNoCompany = !req.user?.companyId
+
+    // Fallback: when no companyId in query and user has none, use any config's companyId
+    if (!queryCompanyId && (isSuperAdmin || userHasNoCompany)) {
+      const anyConfig = await AskevaConfig.findOne().select('companyId').lean()
+      if (anyConfig?.companyId) companyId = anyConfig.companyId
+    }
+
     const page = Math.max(1, parseInt(req.query.page, 10) || 1)
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20))
     const skip = (page - 1) * limit
     const { retailerMatched, isRead } = req.query
 
-    const query = { companyId }
+    const query = {}
+    if (companyId && companyId !== 'all') query.companyId = companyId
     if (retailerMatched === 'true') query.retailerMatched = true
     if (retailerMatched === 'false') query.retailerMatched = false
     if (isRead === 'true') query.isRead = true
@@ -768,7 +873,9 @@ exports.getWebhookMessages = async (req, res) => {
         .limit(limit)
         .lean(),
       WebhookMessage.countDocuments(query),
-      WebhookMessage.countDocuments({ companyId, isRead: false }),
+      WebhookMessage.countDocuments(
+        companyId && companyId !== 'all' ? { companyId, isRead: false } : { isRead: false }
+      ),
     ])
 
     res.json({
@@ -786,9 +893,10 @@ exports.getWebhookMessages = async (req, res) => {
 
 exports.getWebhookMessageById = async (req, res) => {
   try {
-    const companyId = getCompanyId(req)
+    const companyId = req.query.companyId === 'all' ? null : (req.query.companyId || getCompanyId(req))
     const { id } = req.params
-    const msg = await WebhookMessage.findOne({ _id: id, companyId })
+    const filter = companyId ? { _id: id, companyId } : { _id: id }
+    const msg = await WebhookMessage.findOne(filter)
       .populate('retailer', 'retailerId businessName storeName contactPerson whatsappNumber whatsappCountryCode status city state')
       .lean()
     if (!msg) {
