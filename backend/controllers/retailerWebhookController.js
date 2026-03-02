@@ -62,8 +62,8 @@ exports.receiveRetailerWebhook = async (req, res) => {
   const errors = []
 
   try {
-    // Support both direct Meta payload and wrapped payloads (e.g. { data: { entry: [...] } })
-    const entries = Array.isArray(body?.entry) ? body.entry : (Array.isArray(body?.data?.entry) ? body.data.entry : [])
+    // Support both direct Meta payload and wrapped payloads
+    const entries = Array.isArray(body?.entry) ? body.entry : (Array.isArray(body?.data?.entry) ? body.data.entry : (body?.messages ? [{ changes: [{ value: body }] }] : []))
 
     // ── If NO entries at all (e.g. ping / test run with empty body) ───────────
     if (entries.length === 0) {
@@ -76,11 +76,11 @@ exports.receiveRetailerWebhook = async (req, res) => {
     }
 
     for (const entry of entries) {
-      const changes = Array.isArray(entry?.changes) ? entry.changes : []
+      const changes = Array.isArray(entry?.changes) ? entry.changes : (entry?.value ? [entry] : [])
 
       for (const change of changes) {
-        const value = change?.value || {}
-        const messages = Array.isArray(value?.messages) ? value.messages : []
+        const value = change?.value || change || {}
+        const messages = Array.isArray(value?.messages) ? value.messages : (Array.isArray(value?.message) ? value.message : [])
         const contacts  = Array.isArray(value?.contacts) ? value.contacts : []
         const metadata  = value?.metadata || {}
 
@@ -185,10 +185,14 @@ exports.receiveRetailerWebhook = async (req, res) => {
                 catalogId:        catalogId || '',
                 messageBody,
                 extraFields,
-              }).catch((e) => console.error('[RetailerWebhook] Order creation/update failed:', e.message))
+              })
+                .then((order) => {
+                  if (order) console.log(`[RetailerWebhook] Order ${order.orderId || order._id} created/updated for ${from}`)
+                })
+                .catch((e) => console.error('[RetailerWebhook] Order creation/update failed:', e.message, e.stack))
             }
 
-            console.log(`[RetailerWebhook] from: +${from} | type: ${msgType} | order: ${shouldCreateOrder} | retailer: ${activeRetailer?.businessName || 'none'}`)
+            console.log(`[RetailerWebhook] from: +${from} | type: ${msgType} | shouldCreateOrder: ${shouldCreateOrder} | retailer: ${activeRetailer?.businessName || 'none'}`)
           } catch (saveErr) {
             console.error('[RetailerWebhook] Save error:', saveErr.message)
             errors.push({ from, error: saveErr.message })

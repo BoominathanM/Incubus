@@ -239,18 +239,25 @@ async function handleWebhookOrderEvent({
     )
     return OrderManagement.findOne({ orderId: existing.orderId }).lean()
   }
-  return createOrderFromWebhook({
-    companyId,
-    webhookMessageId,
-    from,
-    fromName,
-    retailerMatched,
-    retailer,
-    items,
-    catalogId,
-    messageBody,
-    extraFields,
-  })
+  try {
+    const order = await createOrderFromWebhook({
+      companyId,
+      webhookMessageId,
+      from,
+      fromName,
+      retailerMatched,
+      retailer,
+      items,
+      catalogId,
+      messageBody,
+      extraFields,
+    })
+    console.log(`[OrderController] Created order ${order?.orderId} for ${normalizedFrom}`)
+    return order
+  } catch (e) {
+    console.error('[OrderController] createOrderFromWebhook failed:', e.message)
+    throw e
+  }
 }
 
 // Export for retailerWebhookController
@@ -430,9 +437,8 @@ exports.createOrder = async (req, res) => {
 
 /**
  * GET /api/orders
- * List orders.
- * Admin/superadmin see all; billing/warehouse are scoped to their companyId.
- * Query: page, limit, tab (all|paid|pending|completed), search, startDate, endDate, type
+ * List orders. All roles see all orders unless ?companyId= is passed.
+ * Query: page, limit, tab (all|paid|pending|completed), search, startDate, endDate, type, companyId
  */
 exports.getOrders = async (req, res) => {
   try {
@@ -441,10 +447,12 @@ exports.getOrders = async (req, res) => {
     const limit = Math.min(100, parseInt(req.query.limit, 10) || 20)
     const skip  = (page - 1) * limit
 
-    // Admin/superadmin see all orders across all companies
+    // Admin/superadmin see all orders. Billing/warehouse also see all orders
+    // (single-tenant; User model has no companyId — filtering was causing empty results)
     const filter = {}
-    if (role !== 'admin' && role !== 'superadmin') {
-      filter.companyId = req.query.companyId || COMPANY_ID
+    const isAdmin = role === 'admin' || role === 'superadmin'
+    if (!isAdmin && req.query.companyId) {
+      filter.companyId = req.query.companyId
     }
 
     const tab = req.query.tab

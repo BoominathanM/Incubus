@@ -6,7 +6,7 @@ import {
 } from 'antd'
 import Breadcrumbs from './Breadcrumbs'
 import PhoneInput from './PhoneInput'
-import { ArrowLeftOutlined, CheckCircleOutlined, EditOutlined, UploadOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, CheckCircleOutlined, EditOutlined, UploadOutlined, LinkOutlined } from '@ant-design/icons'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
 import { useGetOrderByIdQuery, useUpdateOrderMutation } from '../store/api/orderApi'
@@ -32,9 +32,7 @@ const OrderDetail = ({ basePath = '/admin' }) => {
 
   const [updateModalVisible, setUpdateModalVisible] = useState(false)
   const [currentSection, setCurrentSection] = useState(null)
-  const [deliverySubModal, setDeliverySubModal] = useState(null)
   const [form] = Form.useForm()
-  const [deliverySubForm] = Form.useForm()
   const deliveryTypeWatch = Form.useWatch('deliveryType', form)
 
   const { data, isLoading, isError } = useGetOrderByIdQuery(orderId, { skip: !orderId })
@@ -43,22 +41,6 @@ const OrderDetail = ({ basePath = '/admin' }) => {
   const orderData = data?.data || null
 
   const fmt = (d) => (d ? dayjs(d).format('YYYY-MM-DD hh:mm A') : '-')
-
-  useEffect(() => {
-    if (deliverySubModal === 'dispatch' && orderData) {
-      deliverySubForm.setFieldsValue({
-        subAwb: orderData.awb,
-        subDispatchTime: orderData.dispatchTime,
-        subCourier: orderData.courier,
-      })
-    } else if (deliverySubModal === 'delivery' && orderData) {
-      deliverySubForm.setFieldsValue({
-        subDeliveryStatus: orderData.deliveryStatus,
-        subDeliveryTime: orderData.deliveryTime,
-        subTrackingUrl: orderData.trackingUrl,
-      })
-    }
-  }, [deliverySubModal, orderData])
 
   const backUrl = `${basePath}/orders`
 
@@ -143,6 +125,7 @@ const OrderDetail = ({ basePath = '/admin' }) => {
       form.setFieldsValue({
         deliveryType: orderData.deliveryType,
         deliveryTypeWarehouseStatus: orderData.deliveryTypeWarehouseStatus,
+        deliveryStatus: orderData.deliveryStatus,
         porterPhone: orderData.porterPhone,
         porterVehicleNumber: orderData.porterVehicleNumber,
         porterName: orderData.porterName,
@@ -178,17 +161,23 @@ const OrderDetail = ({ basePath = '/admin' }) => {
       } else if (currentSection === 'warehouse_dispatch') {
         payload = { ...payload, warehouseStatus: values.warehouseStatus, dispatchStatus: values.dispatchStatus, notifyDispatch: values.notifyDispatch }
       } else if (currentSection === 'warehouse_delivery') {
+        const deliveryType = values.deliveryType || orderData?.deliveryType || 'warehouse_agent'
+        const trackingVal = values.porterTrackingUrl?.trim() || values.courierLastTrackingUrl?.trim() || undefined
         payload = {
           ...payload,
           deliveryType: values.deliveryType,
           deliveryTypeWarehouseStatus: values.deliveryTypeWarehouseStatus,
+          deliveryStatus: values.deliveryStatus,
           porterPhone: values.porterPhone,
           porterVehicleNumber: values.porterVehicleNumber,
           porterName: values.porterName,
-          porterTrackingUrl: values.porterTrackingUrl,
           courierDocumentNumber: values.courierDocumentNumber,
           courierAgent: values.courierAgent,
-          courierLastTrackingUrl: values.courierLastTrackingUrl,
+          ...(trackingVal && deliveryType === 'porter' && { porterTrackingUrl: trackingVal }),
+          ...(trackingVal && deliveryType === 'courier_service' && { courierLastTrackingUrl: trackingVal }),
+        }
+        if (values.deliveryStatus === 'Delivered') {
+          payload.deliveryTime = new Date().toISOString()
         }
       }
 
@@ -341,13 +330,18 @@ const OrderDetail = ({ basePath = '/admin' }) => {
                     <Button icon={<UploadOutlined />}>Upload proof</Button>
                   </Upload>
                 </Form.Item>
-                <Form.Item name="courierLastTrackingUrl" label="Last Tracking URL"><Input placeholder="Enter last tracking URL" /></Form.Item>
-                <Card size="small" style={{ marginTop: 12 }} title="Delivery" extra={<Button type="primary" size="small" onClick={() => setDeliverySubModal('delivery')}>Update</Button>}>
-                  <Text type="secondary">Status: {orderData?.deliveryStatus || 'Pending'}</Text><br />
-                  <Text type="secondary">Time: {fmt(orderData?.deliveryTime)}</Text>
-                </Card>
+                <Form.Item name="courierLastTrackingUrl" label="Last Tracking URL">
+                  <Input placeholder="Enter last tracking URL" />
+                </Form.Item>
               </>
             )}
+            <Form.Item name="deliveryStatus" label="Delivery Status">
+              <Select placeholder="Select status">
+                <Option value="Pending">Pending</Option>
+                <Option value="In Transit">In Transit</Option>
+                <Option value="Delivered">Delivered</Option>
+              </Select>
+            </Form.Item>
           </>
         )
       }
@@ -720,8 +714,16 @@ const OrderDetail = ({ basePath = '/admin' }) => {
                 'Delivery Type': deliveryTypeLabel,
                 'Delivery Status': <Tag color={orderData.deliveryStatus === 'Delivered' ? '#15B9A4' : orderData.deliveryStatus === 'In Transit' ? '#6754A3' : '#999'}>{orderData.deliveryStatus || 'Pending'}</Tag>,
                 'Delivery Time': fmt(orderData.deliveryTime),
-                'Tracking URL': orderData.trackingUrl
-                  ? <a href={orderData.trackingUrl} target="_blank" rel="noopener noreferrer">Track</a>
+                'Tracking URL': (orderData.trackingUrl || orderData.porterTrackingUrl || orderData.courierLastTrackingUrl)
+                  ? (
+                      <a
+                        href={orderData.trackingUrl || orderData.porterTrackingUrl || orderData.courierLastTrackingUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <LinkOutlined /> Open tracking
+                      </a>
+                    )
                   : '-',
               }]}
               columns={[
@@ -747,59 +749,13 @@ const OrderDetail = ({ basePath = '/admin' }) => {
         }
         open={updateModalVisible}
         onOk={handleUpdateSubmit}
-        onCancel={() => { setUpdateModalVisible(false); form.resetFields(); setDeliverySubModal(null) }}
+        onCancel={() => { setUpdateModalVisible(false); form.resetFields() }}
         confirmLoading={isUpdating}
         width={600}
         styles={{ body: { maxHeight: '70vh', overflowY: 'auto' } }}
       >
         <Form form={form} layout="vertical">
           {renderModalContent()}
-        </Form>
-      </Modal>
-
-      {/* ── Delivery sub-modal (courier delivery update) ──────────────────── */}
-      <Modal
-        title={
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', paddingRight: 8 }}>
-            <span>Update Delivery</span>
-            <Text strong style={{ color: 'inherit' }}>{orderData.orderId}</Text>
-          </div>
-        }
-        open={deliverySubModal === 'delivery'}
-        onOk={async () => {
-          try {
-            const values = await deliverySubForm.validateFields()
-            await updateOrder({
-              orderId,
-              deliveryStatus: values.subDeliveryStatus,
-              trackingUrl: values.subTrackingUrl,
-            }).unwrap()
-            message.success('Delivery details updated')
-            setDeliverySubModal(null)
-            deliverySubForm.resetFields()
-          } catch (err) {
-            message.error(err?.data?.message || 'Update failed')
-          }
-        }}
-        onCancel={() => { setDeliverySubModal(null); deliverySubForm.resetFields() }}
-        confirmLoading={isUpdating}
-        width={440}
-        styles={{ body: { maxHeight: '70vh', overflowY: 'auto' } }}
-      >
-        <Form form={deliverySubForm} layout="vertical">
-          <Form.Item name="subDeliveryStatus" label="Delivery Status">
-            <Select>
-              <Option value="Pending">Pending</Option>
-              <Option value="In Transit">In Transit</Option>
-              <Option value="Delivered">Delivered</Option>
-            </Select>
-          </Form.Item>
-          <Form.Item name="subDeliveryTime" label="Delivery Time">
-            <Input placeholder="e.g. 2024-01-16 11:00 AM" />
-          </Form.Item>
-          <Form.Item name="subTrackingUrl" label="Tracking URL">
-            <Input placeholder="Enter tracking URL" />
-          </Form.Item>
         </Form>
       </Modal>
     </div>

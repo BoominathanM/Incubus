@@ -720,22 +720,25 @@ exports.handleWebhook = async (req, res) => {
 async function processWebhookPayload(companyId, body) {
   const { handleWebhookOrderEvent } = require('./orderController')
 
-  // Support both direct Meta payload and wrapped payloads (e.g. { data: { entry: [...] } })
-  const entries = body?.entry || body?.data?.entry || []
+  // Support both direct Meta payload and wrapped payloads
+  const entries = body?.entry || body?.data?.entry || (body?.messages ? [{ changes: [{ value: body }] }] : [])
   if (entries.length === 0 && Object.keys(body || {}).length > 0) {
-    console.log('[Webhook] No entry in payload — raw body sample:', JSON.stringify(body).slice(0, 300))
+    console.log('[Webhook] No entry in payload — raw body sample:', JSON.stringify(body).slice(0, 500))
   }
 
   for (const entry of entries) {
-    for (const change of (entry.changes || [])) {
-      const value = change.value || {}
+    const changes = entry.changes || (entry.value ? [entry] : [])
+    for (const change of changes) {
+      const value = change.value || change
       const contacts = value.contacts || []
+      const messages = value.messages || value.message || (Array.isArray(value) ? value : [])
 
-      for (const msg of (value.messages || [])) {
-        const fromNumber = (msg.from || '').replace(/\D/g, '')
-        if (!fromNumber) continue
+      for (const msg of messages) {
+        try {
+          const fromNumber = (msg.from || msg.sender_id || '').replace(/\D/g, '')
+          if (!fromNumber) continue
 
-        const contact = contacts.find((c) => (c.wa_id || '').replace(/\D/g, '') === fromNumber)
+          const contact = contacts.find((c) => (c.wa_id || '').replace(/\D/g, '') === fromNumber)
         const fromName = contact?.profile?.name || ''
         const msgType = msg.type || 'text'
         const ts = msg.timestamp ? new Date(parseInt(msg.timestamp, 10) * 1000) : new Date()
@@ -802,7 +805,7 @@ async function processWebhookPayload(companyId, body) {
           rawPayload:      { entry: body.entry },
         })
 
-        console.log(`[Webhook] from: ${fromNumber} | type: ${msgType} | retailer: ${retailer?.businessName || 'none'} | stored msg _id: ${savedMsg._id}`)
+        console.log(`[Webhook] from: ${fromNumber} | type: ${msgType} | retailer: ${retailer?.businessName || 'none'} | shouldCreateOrder: ${shouldCreateOrder}`)
 
         // ── Auto-create/update order (one order per user flow) ──────────────────
         if (shouldCreateOrder) {
@@ -818,7 +821,14 @@ async function processWebhookPayload(companyId, body) {
             catalogId,
             messageBody,
             extraFields,
-          }).catch((e) => console.error('[Webhook] Order creation/update failed:', e.message))
+          })
+            .then((order) => {
+              if (order) console.log(`[Webhook] Order ${order.orderId || order._id} created/updated for ${fromNumber}`)
+            })
+            .catch((e) => console.error('[Webhook] Order creation/update failed:', e.message, e.stack))
+        }
+        } catch (msgErr) {
+          console.error('[Webhook] Message processing error:', msgErr.message)
         }
       }
 
