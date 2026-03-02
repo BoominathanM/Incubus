@@ -158,7 +158,7 @@ const AdminDashboard = () => {
         ))}
       </Row>
 
-      <Card title={`Recent Orders (${rangeLabel})`} style={{ marginTop: 24 }}>
+      {/* <Card title={`Recent Orders (${rangeLabel})`} style={{ marginTop: 24 }}>
         <Table
           columns={recentOrdersColumns}
           dataSource={recentOrders.map((o) => ({ ...o, key: o._id }))}
@@ -170,7 +170,7 @@ const AdminDashboard = () => {
             style: { cursor: 'pointer' },
           })}
         />
-      </Card>
+      </Card> */}
     </div>
   )
 }

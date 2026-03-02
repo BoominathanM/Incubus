@@ -23,9 +23,14 @@ function withToken(baseUrl, path, token) {
 
 /**
  * Get decrypted config for a company (includes apiKey).
+ * Falls back to any available config if companyId-specific one is not found.
  */
 async function getConfigForCompany(companyId) {
-  const config = await AskevaConfig.findOne({ companyId }).select('+apiKey +webhookSecret').lean()
+  let config = await AskevaConfig.findOne({ companyId }).select('+apiKey +webhookSecret').lean()
+  if (!config || !config.apiKey) {
+    // Fallback: find any configured integration (single-tenant setup)
+    config = await AskevaConfig.findOne({ apiKey: { $exists: true, $ne: null } }).select('+apiKey +webhookSecret').lean()
+  }
   if (!config || !config.apiKey) return null
   return {
     ...config,
@@ -296,11 +301,36 @@ async function sendMessage({ companyId, triggeredBy, module, candidateId, payloa
   const token = config.apiKey
   const url = `${base}/v1/message/send-message?token=${encodeURIComponent(token)}`
 
+  // Convert parameters object { "1": "val1", "2": "val2" } → positional array ["val1", "val2"]
+  const paramsObj = payload.parameters || {}
+  const paramsArray = Object.keys(paramsObj)
+    .sort((a, b) => Number(a) - Number(b))
+    .map(k => paramsObj[k])
+    .filter(v => v != null && v !== '')
+
+  const templateName = payload.templateName || payload.template_name
+  const langCode = (payload.language || 'en').toLowerCase()
+
+  // Build Meta WhatsApp Cloud API template object
+  // Askeva wraps Meta WABA — confirmed by numeric templateIds (e.g. "626756667162738")
+  const templateObj = {
+    name: templateName,
+    language: { code: langCode },
+  }
+  // Variables go as body component parameters: [{ type: "text", text: "value" }, ...]
+  if (paramsArray.length > 0) {
+    templateObj.components = [
+      {
+        type: 'body',
+        parameters: paramsArray.map(v => ({ type: 'text', text: String(v) })),
+      },
+    ]
+  }
+
   const body = {
     to: payload.to,
-    template_name: payload.templateName || payload.template_name,
-    language: payload.language || 'en',
-    parameters: payload.parameters || {},
+    type: 'template',
+    template: templateObj,
   }
 
   try {

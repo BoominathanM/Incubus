@@ -56,17 +56,24 @@ const { Option } = Select
 
 const DEFAULT_BACKEND_URL = 'https://backend.askeva.io'
 
-const HRMS_EVENT_OPTIONS = [
+const INCUBUS_EVENT_OPTIONS = [
+  { value: 'Billing Verification', label: 'Billing Verification' },
   { value: 'Billing Invoice Generate', label: 'Billing Invoice' },
   { value: 'Dispatch Order', label: 'Dispatch Order' },
   { value: 'Delivery Completed', label: 'Delivery Completed' },
 ]
 
 const TEMPLATE_FIELD_OPTIONS = [
-  { value: 'Candidate Name (Candidate)', label: 'Candidate Name (Candidate)' },
-  { value: 'Job Title (Job)', label: 'Job Title (Job)' },
-  { value: 'Department (Department)', label: 'Department (Department)' },
-  { value: 'Salary (Compensation)', label: 'Salary (Compensation)' },
+  { value: 'Order ID', label: 'Order ID' },
+  { value: 'Contact Name', label: 'Contact Name' },
+  { value: 'Contact Number', label: 'Contact Number' },
+  { value: 'Amount', label: 'Amount' },
+  { value: 'Invoice Number', label: 'Invoice Number' },
+  { value: 'Billing Status', label: 'Billing Status' },
+  { value: 'Dispatch Status', label: 'Dispatch Status' },
+  { value: 'Delivery Status', label: 'Delivery Status' },
+  { value: 'Delivery Type', label: 'Delivery Type' },
+  { value: 'Tracking URL', label: 'Tracking URL' },
 ]
 
 const WhatsAppIntegration = () => {
@@ -386,10 +393,6 @@ const WhatsAppIntegration = () => {
           hrmsField: v.hrmsField,
           defaultValue: v.defaultValue || '',
         }))
-      if (!variables.length) {
-        message.error('Map at least one template variable to a field')
-        return
-      }
       await saveEventMapping({
         id: editingMappingId || undefined,
         hrmsEventType: values.hrmsEventType,
@@ -398,13 +401,15 @@ const WhatsAppIntegration = () => {
         isEnabled: values.status !== false,
         variables,
       }).unwrap()
-      message.success(editingMappingId ? 'Event mapping updated' : 'Event mapping created')
+      message.success(editingMappingId ? 'Event mapping updated' : 'Event mapping saved')
       setEventModalVisible(false)
       eventForm.resetFields()
       setVariableMappings([])
       setSelectedTemplate(null)
       setEditingMappingId(null)
     } catch (e) {
+      // AntD form validation rejects with { errorFields } — errors are shown inline, no toast needed
+      if (e?.errorFields) return
       message.error(e?.data?.error?.message || e?.error?.message || 'Failed to save mapping')
     }
   }
@@ -775,11 +780,11 @@ const WhatsAppIntegration = () => {
         <Form form={eventForm} layout="vertical">
           <Form.Item
             name="hrmsEventType"
-            label="Event Type"
-            rules={[{ required: true, message: 'Please select event type' }]}
+            label="Incubus Event Type"
+            rules={[{ required: true, message: 'Please select an Incubus event type' }]}
           >
-            <Select placeholder="Select event type">
-              {HRMS_EVENT_OPTIONS.map((o) => (
+            <Select placeholder="Select Incubus event type">
+              {INCUBUS_EVENT_OPTIONS.map((o) => (
                 <Option key={o.value} value={o.value}>{o.label}</Option>
               ))}
             </Select>
@@ -833,7 +838,7 @@ const WhatsAppIntegration = () => {
                         <Form.Item label="Template Variable">
                           <Input value={vm.templateVariable} readOnly />
                         </Form.Item>
-                        <Form.Item label="Template Field" required>
+                        <Form.Item label="Incubus Field" required>
                           <Select
                             placeholder="Select field"
                             value={vm.hrmsField || undefined}

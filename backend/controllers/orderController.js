@@ -1,5 +1,7 @@
 const OrderManagement = require('../models/OrderManagement.model')
 const WebhookMessage = require('../models/WebhookMessage.model')
+const EventTemplateMapping = require('../models/EventTemplateMapping.model')
+const askevaService = require('../services/askeva.service')
 const mongoose = require('mongoose')
 const User = require('../models/User')
 
@@ -16,14 +18,14 @@ const COMPANY_ID = process.env.ASKEVA_COMPANY_ID || 'default'
 // ─── Role permission maps ─────────────────────────────────────────────────────
 
 const BILLING_FIELDS = new Set([
-  'billingVerified', 'billingVerifiedBy', 'billingVerifiedAt',
+  'billingVerified', 'billingVerifiedBy', 'billingVerifiedAt', 'notifyBillingVerification',
   'billingStatus', 'invoiceNumber', 'billingTime', 'notifyBilling',
 ])
 
 const WAREHOUSE_FIELDS = new Set([
   'warehouseStatus', 'warehouseTime',
   'dispatchStatus', 'dispatchTime', 'notifyDispatch',
-  'deliveryType', 'deliveryStatus', 'deliveryTime',
+  'deliveryType', 'deliveryStatus', 'deliveryTime', 'notifyDelivery',
   'trackingUrl', 'courier', 'awb', 'deliveryTypeWarehouseStatus',
   'porterPhone', 'porterVehicleNumber', 'porterName', 'porterTrackingUrl',
   'courierDocumentNumber', 'courierAgent', 'courierLastTrackingUrl',
@@ -582,6 +584,111 @@ exports.getOrderStats = async (req, res) => {
   }
 }
 
+// ─── Order notification helper ─────────────────────────────────────────────────
+
+/**
+ * Resolve a hrmsField string to its value from the order document.
+ */
+function resolveOrderField(order, hrmsField) {
+  const map = {
+    'Order ID': order.orderId,
+    'Contact Name': order.contactName || order.fromName,
+    'Contact Number': order.contactNumber || order.from,
+    'Amount': order.amount != null ? String(order.amount) : '',
+    'Invoice Number': order.invoiceNumber,
+    'Billing Status': order.billingStatus,
+    'Dispatch Status': order.dispatchStatus,
+    'Delivery Status': order.deliveryStatus,
+    'Delivery Type': order.deliveryType,
+    'Tracking URL': order.porterTrackingUrl || order.courierLastTrackingUrl || order.trackingUrl,
+  }
+  return map[hrmsField] ?? ''
+}
+
+/**
+ * Send a WhatsApp order notification to:
+ *   1. The customer (order.contactNumber or order.from)
+ *   2. The matched retailer's WhatsApp number (if populated)
+ * Looks up the EventTemplateMapping for the given eventType.
+ * Fire-and-forget — errors are logged but never thrown.
+ */
+async function sendOrderNotification(order, eventType, companyId) {
+  try {
+    // Look up event mapping — use $ne:false so old docs without the field are included
+    let mapping = await EventTemplateMapping.findOne({
+      companyId,
+      hrmsEventType: eventType,
+      isEnabled: { $ne: false },
+    })
+      .populate('templateId', 'templateName language')
+      .lean()
+
+    // Fallback: find the mapping under any companyId if not found under this one
+    if (!mapping || !mapping.templateId) {
+      mapping = await EventTemplateMapping.findOne({
+        hrmsEventType: eventType,
+        isEnabled: { $ne: false },
+      })
+        .populate('templateId', 'templateName language')
+        .lean()
+    }
+
+    if (!mapping || !mapping.templateId) {
+      console.log(`[OrderNotify] No active mapping for event '${eventType}' — skipping`)
+      return
+    }
+
+    const resolvedCompanyId = mapping.companyId || companyId
+    const templateName = mapping.templateName || mapping.templateId.templateName
+    // Normalize language to lowercase (template stores 'EN', API expects 'en')
+    const language = (mapping.templateId.language || 'en').toLowerCase()
+
+    // Build parameters object — convert {{N}} keys to numeric string keys ("1", "2", ...)
+    // which is the standard format accepted by most WhatsApp BSPs including Askeva
+    const parameters = {}
+    for (const v of (mapping.variables || [])) {
+      const val = resolveOrderField(order, v.hrmsField) || v.defaultValue || ''
+      // Strip {{ and }} to get the positional key: "{{1}}" → "1"
+      const key = v.templateVariable.replace(/\{\{|\}\}/g, '').trim()
+      parameters[key] = val
+    }
+
+    // Collect recipient phone numbers (deduplicated)
+    // Prefer order.from — always the full WhatsApp wa_id (e.g. "916379171055") from webhook.
+    // order.contactNumber may only store the local number without country code after admin edits.
+    const recipients = new Set()
+    const fromPhone = (order.from || '').replace(/\D/g, '')
+    const contactPhone = (order.contactNumber || '').replace(/\D/g, '')
+    // Use the longer/more complete number — full wa_id has country code (11-12 digits)
+    const customerPhone = fromPhone.length >= contactPhone.length ? fromPhone : contactPhone
+    if (customerPhone && customerPhone.length >= 10) recipients.add(customerPhone)
+
+    if (order.retailer && order.retailer.whatsappNumber) {
+      const cc = (order.retailer.whatsappCountryCode || '91').replace(/\D/g, '')
+      const num = order.retailer.whatsappNumber.replace(/\D/g, '')
+      const retailerPhone = cc + num
+      if (retailerPhone) recipients.add(retailerPhone)
+    }
+
+    console.log(`[OrderNotify] Sending '${eventType}' for order ${order.orderId} | recipients: [${[...recipients].join(', ')}] | template: ${templateName} | params:`, parameters)
+
+    for (const phone of recipients) {
+      const result = await askevaService.sendMessage({
+        companyId: resolvedCompanyId,
+        module: 'order',
+        payload: { to: phone, templateName, language, parameters },
+      })
+      if (result.success) {
+        console.log(`[OrderNotify] ✓ Sent '${eventType}' to ${phone} for order ${order.orderId}`)
+      } else {
+        console.warn(`[OrderNotify] ✗ Failed to send '${eventType}' to ${phone}:`, result.error)
+      }
+    }
+  } catch (err) {
+    console.error(`[OrderNotify] Error sending '${eventType}' for order ${order?.orderId}:`, err.message)
+  }
+}
+
 /**
  * PATCH /api/orders/:orderId
  * Update order with role-based field restrictions.
@@ -626,6 +733,16 @@ exports.updateOrder = async (req, res) => {
       { $set: updateData },
       { new: true }
     ).populate('retailer', 'retailerId businessName storeName contactPerson email whatsappNumber whatsappCountryCode city state').lean()
+
+    // Fire-and-forget WhatsApp notifications (non-blocking)
+    if (updateData.notifyBillingVerification === true)
+      sendOrderNotification(updated, 'Billing Verification', updated.companyId)
+    if (updateData.notifyBilling === true)
+      sendOrderNotification(updated, 'Billing Invoice Generate', updated.companyId)
+    if (updateData.notifyDispatch === true)
+      sendOrderNotification(updated, 'Dispatch Order', updated.companyId)
+    if (updateData.notifyDelivery === true)
+      sendOrderNotification(updated, 'Delivery Completed', updated.companyId)
 
     return res.json({ success: true, data: updated })
   } catch (err) {

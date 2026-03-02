@@ -48,6 +48,7 @@ const orderManagementSchema = new mongoose.Schema(
     billingVerified: { type: Boolean, default: false },
     billingVerifiedBy: { type: String, default: '' },
     billingVerifiedAt: { type: Date, default: null },
+    notifyBillingVerification: { type: Boolean, default: false },
     billingStatus: { type: String, default: 'Pending' },   // Pending | Completed
     invoiceNumber: { type: String, default: '' },
     billingTime: { type: Date, default: null },
@@ -64,6 +65,7 @@ const orderManagementSchema = new mongoose.Schema(
     deliveryType: { type: String, default: '' }, // warehouse_agent | porter | courier_service
     deliveryStatus: { type: String, default: 'Pending' }, // Pending | In Transit | Delivered
     deliveryTime: { type: Date, default: null },
+    notifyDelivery: { type: Boolean, default: false },
     trackingUrl: { type: String, default: '' },
     courier: { type: String, default: '' },
     awb: { type: String, default: '' },

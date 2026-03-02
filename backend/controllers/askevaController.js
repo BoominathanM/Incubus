@@ -545,9 +545,11 @@ exports.saveEventTemplateMapping = async (req, res) => {
         })
       }
     } else {
-      mappingData.createdBy = userId
-      mapping = await EventTemplateMapping.create(mappingData)
-      mapping = await EventTemplateMapping.findById(mapping._id)
+      mapping = await EventTemplateMapping.findOneAndUpdate(
+        { companyId, hrmsEventType },
+        { $set: mappingData, $setOnInsert: { createdBy: userId } },
+        { new: true, upsert: true, runValidators: true }
+      )
         .populate('templateId', 'templateName templateId language status')
         .lean()
     }
@@ -555,15 +557,9 @@ exports.saveEventTemplateMapping = async (req, res) => {
     res.json({
       success: true,
       data: { mapping },
-      message: id ? 'Event template mapping updated successfully' : 'Event template mapping created successfully',
+      message: id ? 'Event template mapping updated successfully' : 'Event template mapping saved successfully',
     })
   } catch (err) {
-    if (err.code === 11000) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'A mapping already exists for this event type' },
-      })
-    }
     res.status(500).json({
       success: false,
       error: { message: err.message || 'Failed to save event template mapping' },

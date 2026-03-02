@@ -108,7 +108,10 @@ const OrderDetail = ({ basePath = '/admin' }) => {
         amount: orderData.amount,
       })
     } else if (section === 'billing_verification') {
-      form.setFieldsValue({ billingVerified: orderData.billingVerified ? 'yes' : 'no' })
+      form.setFieldsValue({
+        billingVerified: orderData.billingVerified ? 'yes' : 'no',
+        notifyBillingVerification: orderData.notifyBillingVerification,
+      })
     } else if (section === 'billing') {
       form.setFieldsValue({
         billingStatus: orderData.billingStatus,
@@ -133,6 +136,7 @@ const OrderDetail = ({ basePath = '/admin' }) => {
         courierDocumentNumber: orderData.courierDocumentNumber,
         courierAgent: orderData.courierAgent,
         courierLastTrackingUrl: orderData.courierLastTrackingUrl,
+        notifyDelivery: orderData.notifyDelivery,
       })
     }
     setUpdateModalVisible(true)
@@ -155,7 +159,7 @@ const OrderDetail = ({ basePath = '/admin' }) => {
       } else if (currentSection === 'payment') {
         payload = { ...payload, paymentStatus: values.paymentStatus, paymentMode: values.paymentMode, transactionId: values.transactionId, amount: values.amount }
       } else if (currentSection === 'billing_verification') {
-        payload = { ...payload, billingVerified: values.billingVerified === 'yes' }
+        payload = { ...payload, billingVerified: values.billingVerified === 'yes', notifyBillingVerification: values.notifyBillingVerification }
       } else if (currentSection === 'billing') {
         payload = { ...payload, billingStatus: values.billingStatus, invoiceNumber: values.invoiceNumber, notifyBilling: values.notifyBilling }
       } else if (currentSection === 'warehouse_dispatch') {
@@ -179,6 +183,7 @@ const OrderDetail = ({ basePath = '/admin' }) => {
         if (values.deliveryStatus === 'Delivered') {
           payload.deliveryTime = new Date().toISOString()
         }
+        payload.notifyDelivery = values.notifyDelivery
       }
 
       await updateOrder(payload).unwrap()
@@ -237,12 +242,17 @@ const OrderDetail = ({ basePath = '/admin' }) => {
         )
       case 'billing_verification':
         return (
-          <Form.Item name="billingVerified" label="Verified">
-            <Select>
-              <Option value="yes">Yes</Option>
-              <Option value="no">No</Option>
-            </Select>
-          </Form.Item>
+          <>
+            <Form.Item name="billingVerified" label="Verified">
+              <Select>
+                <Option value="yes">Yes</Option>
+                <Option value="no">No</Option>
+              </Select>
+            </Form.Item>
+            <Form.Item name="notifyBillingVerification" valuePropName="checked">
+              <Checkbox>Notify customer on verification</Checkbox>
+            </Form.Item>
+          </>
         )
       case 'billing':
         return (
@@ -341,6 +351,9 @@ const OrderDetail = ({ basePath = '/admin' }) => {
                 <Option value="In Transit">In Transit</Option>
                 <Option value="Delivered">Delivered</Option>
               </Select>
+            </Form.Item>
+            <Form.Item name="notifyDelivery" valuePropName="checked">
+              <Checkbox>Notify customer on delivery update</Checkbox>
             </Form.Item>
           </>
         )
