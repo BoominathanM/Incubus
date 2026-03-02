@@ -4,6 +4,31 @@ const { validateFileType, uploadToCloudinary } = require('../utils/uploadCloudin
 const { generateRetailerId } = require('../utils/retailerId')
 const XLSX = require('xlsx')
 
+// Public: returns all active retailers in chatbot-friendly format
+async function getActiveRetailers(req, res) {
+  try {
+    const retailers = await Retailer.find(
+      { status: 'active' },
+      { businessName: 1, street1: 1, city: 1, district: 1, state: 1, pincode: 1, whatsappCountryCode: 1, whatsappNumber: 1 }
+    ).lean()
+
+    const result = retailers.map((r) => {
+      const addressParts = [r.street1, r.city, r.district, r.state].filter(Boolean)
+      const countryCode = (r.whatsappCountryCode || '+91').replace('+', '')
+      return {
+        name: r.businessName,
+        address: addressParts.join(', '),
+        contact: countryCode + r.whatsappNumber,
+        pincode: r.pincode,
+      }
+    })
+
+    return res.status(200).json(result)
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Server error', error: err.message })
+  }
+}
+
 const MANDATORY_IMPORT_COLUMNS = [
   'businessName',
   'contactPerson',
@@ -707,4 +732,5 @@ module.exports = {
   importRetailers,
   stats,
   statsByDate,
+  getActiveRetailers,
 }

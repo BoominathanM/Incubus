@@ -39,6 +39,8 @@ app.get('/api/askeva/webhook/:companyId', askevaController.handleWebhookVerifica
 app.post('/api/askeva/webhook/:companyId', askevaController.handleWebhook)
 app.post('/api/askeva/webhook-catalog/:companyId', askevaController.handleCatalogWebhook)
 app.use('/api/askeva', askevaRoutes)
+// Public endpoint for chatbot — no auth required
+app.get('/api/retailers/active', require('./controllers/retailerController').getActiveRetailers)
 app.use('/api/retailers', retailerRoutes)
 app.use('/api/retailer-webhook', retailerWebhookRoutes)
 app.use('/api/orders', orderRoutes)
