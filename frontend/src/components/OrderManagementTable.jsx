@@ -107,7 +107,6 @@ const OrderManagementTable = ({ detailPathPrefix }) => {
     {
       title: 'Actions',
       key: 'actions',
-      width: 72,
       render: (_, record) => {
         const menuItems = [
           {

@@ -74,7 +74,8 @@ const AdminOrders = () => {
       title: 'Order ID',
       dataIndex: 'orderId',
       key: 'orderId',
-      render: (text) => <strong>{text}</strong>,
+      width: 140,
+      render: (text) => <strong style={{ whiteSpace: 'nowrap' }}>{text}</strong>,
     },
     {
       title: 'Created At',

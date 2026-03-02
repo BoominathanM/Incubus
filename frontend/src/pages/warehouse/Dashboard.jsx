@@ -7,7 +7,7 @@ import {
   TruckOutlined,
 } from '@ant-design/icons'
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   PieChart, Pie, Cell, Legend,
 } from 'recharts'
 import Breadcrumbs from '../../components/Breadcrumbs'
@@ -43,7 +43,7 @@ const WarehouseDashboard = () => {
   )
   const orders = ordersData?.data?.orders || []
 
-  // Bar chart — orders per day
+  // Line chart — orders per day
   const barData = useMemo(() => {
     const dailyMap = {}
     orders.forEach((o) => {
@@ -128,13 +128,13 @@ const WarehouseDashboard = () => {
           <Card title="Orders Per Day">
             {barData.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={barData} margin={{ top: 4, right: 16, left: -10, bottom: 0 }}>
+                <LineChart data={barData} margin={{ top: 4, right: 16, left: -10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                   <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
                   <Tooltip />
-                  <Bar dataKey="Orders" fill="#1890ff" radius={[4, 4, 0, 0]} />
-                </BarChart>
+                  <Line type="monotone" dataKey="Orders" stroke="#1890ff" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                </LineChart>
               </ResponsiveContainer>
             ) : (
               <Empty description="No order data" style={{ padding: 40 }} />
