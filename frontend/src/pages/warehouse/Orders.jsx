@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Table, Tag, Button, Space, Input, DatePicker, Typography, Dropdown, Card } from 'antd'
+import { Table, Tag, Button, Space, Input, DatePicker, Typography, Dropdown, Card, message } from 'antd'
 import Breadcrumbs from '../../components/Breadcrumbs'
-import { SearchOutlined, EyeOutlined, MoreOutlined } from '@ant-design/icons'
+import { SearchOutlined, EyeOutlined, MoreOutlined, ExportOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useGetOrdersQuery } from '../../store/api/orderApi'
+import { exportToExcel, fmtDate } from '../../utils/exportToExcel'
 
 const { Title } = Typography
 const { RangePicker } = DatePicker
@@ -144,6 +145,33 @@ const WarehouseOrders = () => {
               allowClear
             />
             <RangePicker value={dateRange} onChange={setDateRange} allowClear />
+            <Button
+              icon={<ExportOutlined />}
+              onClick={() => {
+                if (!orders.length) { message.warning('No orders to export'); return }
+                const rows = orders.map((o) => ({
+                  'Order ID': o.orderId,
+                  'Created At': fmtDate(o.createdAt),
+                  'Name': o.contactName || o.fromName || o.retailer?.businessName || '',
+                  'Type': o.type === 'retailer' ? 'Retailer' : 'End User',
+                  'Amount': o.amount || 0,
+                  'Billing Status': o.billingStatus || 'Pending',
+                  'Warehouse Status': o.warehouseStatus || '',
+                  'Dispatch Status': o.dispatchStatus || '',
+                  'Delivery Status': o.deliveryStatus || '',
+                  'Delivery Type': o.deliveryType || '',
+                  'Tracking URL': o.trackingUrl || o.porterTrackingUrl || o.courierLastTrackingUrl || '',
+                  'Final Status': o.finalStatus || 'Open',
+                  'Delivery Address': o.deliveryAddress || '',
+                }))
+                const label = dateRange?.[0] && dateRange?.[1]
+                  ? `${dateRange[0].format('YYYYMMDD')}-${dateRange[1].format('YYYYMMDD')}`
+                  : dayjs().format('YYYYMMDD')
+                exportToExcel(rows, `WarehouseOrders-${label}`)
+              }}
+            >
+              Export
+            </Button>
           </Space>
         }
       >

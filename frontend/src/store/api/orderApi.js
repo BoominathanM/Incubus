@@ -52,6 +52,15 @@ export const orderApi = baseApi.injectEndpoints({
       }),
       invalidatesTags: ['Orders'],
     }),
+
+    getOrderStats: builder.query({
+      query: (params = {}) => ({
+        url: '/api/orders/stats',
+        params,
+      }),
+      providesTags: ['Orders'],
+      keepUnusedDataFor: 60,
+    }),
   }),
 })
 
@@ -62,4 +71,5 @@ export const {
   useCreateOrderMutation,
   useBackfillOrdersMutation,
   useResetOrderCounterMutation,
+  useGetOrderStatsQuery,
 } = orderApi

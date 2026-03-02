@@ -522,6 +522,67 @@ exports.getOrderById = async (req, res) => {
 }
 
 /**
+ * GET /api/orders/stats
+ * Returns order aggregate stats. Supports optional ?startDate= &endDate= for date-range filtering.
+ * All roles that can view orders can access this.
+ */
+exports.getOrderStats = async (req, res) => {
+  try {
+    const filter = {}
+    if (req.query.startDate || req.query.endDate) {
+      filter.createdAt = {}
+      if (req.query.startDate) filter.createdAt.$gte = new Date(req.query.startDate)
+      if (req.query.endDate)   filter.createdAt.$lte = new Date(req.query.endDate)
+    }
+
+    const [
+      totalOrders,
+      completedOrders,
+      pendingOrders,
+      totalOrdersPaid,
+      invoicesProcessed,
+      invoicesPending,
+      ordersReadyForDispatch,
+      ordersInTransit,
+      ordersDelivered,
+      revenueAgg,
+    ] = await Promise.all([
+      OrderManagement.countDocuments(filter),
+      OrderManagement.countDocuments({ ...filter, finalStatus: 'Closed' }),
+      OrderManagement.countDocuments({ ...filter, paymentStatus: 'Pending' }),
+      OrderManagement.countDocuments({ ...filter, paymentStatus: 'Success' }),
+      OrderManagement.countDocuments({ ...filter, billingStatus: 'Completed' }),
+      OrderManagement.countDocuments({ ...filter, billingVerified: true, billingStatus: 'Pending' }),
+      OrderManagement.countDocuments({ ...filter, warehouseStatus: 'Ready' }),
+      OrderManagement.countDocuments({ ...filter, deliveryStatus: 'In Transit' }),
+      OrderManagement.countDocuments({ ...filter, deliveryStatus: 'Delivered' }),
+      OrderManagement.aggregate([
+        { $match: { ...filter, paymentStatus: 'Success' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ]),
+    ])
+
+    return res.json({
+      success: true,
+      data: {
+        totalOrders,
+        completedOrders,
+        pendingOrders,
+        totalRevenue: revenueAgg[0]?.total || 0,
+        totalOrdersPaid,
+        invoicesProcessed,
+        invoicesPending,
+        ordersReadyForDispatch,
+        ordersInTransit,
+        ordersDelivered,
+      },
+    })
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message })
+  }
+}
+
+/**
  * PATCH /api/orders/:orderId
  * Update order with role-based field restrictions.
  */

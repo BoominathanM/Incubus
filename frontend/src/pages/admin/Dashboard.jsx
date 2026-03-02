@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Row, Col, Card, Statistic, Table, DatePicker, Space, Typography } from 'antd'
 import {
@@ -13,20 +13,38 @@ import {
 import Breadcrumbs from '../../components/Breadcrumbs'
 import dayjs from 'dayjs'
 import { useGetRetailerStatsQuery } from '../../store/api/retailerApi'
+import { useGetOrderStatsQuery, useGetOrdersQuery } from '../../store/api/orderApi'
 
 const { RangePicker } = DatePicker
 const { Title } = Typography
 
 const AdminDashboard = () => {
   const navigate = useNavigate()
-  const [dateRange, setDateRange] = useState([dayjs().subtract(7, 'day'), dayjs()])
+  const [dateRange, setDateRange] = useState(null)
   const { data: statsData } = useGetRetailerStatsQuery()
   const s = statsData?.stats ?? {}
 
-  const rangeDays = dateRange?.[0] && dateRange?.[1] ? dateRange[1].diff(dateRange[0], 'day') + 1 : 7
   const rangeLabel = dateRange?.[0] && dateRange?.[1]
     ? `${dateRange[0].format('DD/MM/YYYY')} - ${dateRange[1].format('DD/MM/YYYY')}`
-    : 'Select range'
+    : 'All Time'
+
+  // Build date params for stats & recent orders query
+  const dateParams = useMemo(() => {
+    if (!dateRange?.[0] || !dateRange?.[1]) return {}
+    return {
+      startDate: dateRange[0].startOf('day').toISOString(),
+      endDate: dateRange[1].endOf('day').toISOString(),
+    }
+  }, [dateRange])
+
+  const { data: orderStatsData, isLoading: statsLoading } = useGetOrderStatsQuery(dateParams)
+  const os = orderStatsData?.data ?? {}
+
+  const { data: recentData, isLoading: recentLoading } = useGetOrdersQuery(
+    { ...dateParams, limit: 10 },
+    { refetchOnMountOrArgChange: 60 }
+  )
+  const recentOrders = recentData?.data?.orders || []
 
   const vendorStats = [
     { title: 'Total Retailers', value: s.totalRetailers ?? '—', icon: <UserOutlined />, color: '#15B9A4' },
@@ -35,63 +53,72 @@ const AdminDashboard = () => {
     { title: 'Rejected Today', value: s.rejectedToday ?? '—', icon: <CloseCircleOutlined />, color: '#ff4d4f' },
   ]
 
-  const approvedTodayList = s.approvedTodayList ?? []
-  const approvedTodayColumns = [
-    { title: 'Retailer ID', dataIndex: 'retailerId', key: 'retailerId', render: (v) => v || '-' },
-    { title: 'Business Name', dataIndex: 'businessName', key: 'businessName' },
-    { title: 'Store Name', dataIndex: 'storeName', key: 'storeName' },
-    {
-      title: 'Approved At',
-      dataIndex: 'approvedAt',
-      key: 'approvedAt',
-      render: (v) => (v ? dayjs(v).format('DD/MM/YYYY HH:mm') : '�'),
-    },
-    { title: 'Agent Name', dataIndex: 'agentName', key: 'agentName', render: (v) => v || '-' },
-  ]
-
   const orderStats = [
-    { title: 'Total Orders', value: 480 + rangeDays * 3, icon: <ShoppingCartOutlined />, color: '#15B9A4' },
-    { title: 'Completed Orders', value: 320 + rangeDays * 2, icon: <CheckCircleOutlined />, color: '#52c41a', path: '/admin/orders?tab=completed' },
-    { title: 'Pending Orders', value: Math.max(10, 62 - rangeDays), icon: <CarOutlined />, color: '#faad14', path: '/admin/orders?tab=pending' },
-    { title: 'Total Revenue', value: `₹${(1245890 + rangeDays * 5000).toLocaleString('en-IN')}`, icon: <DollarOutlined />, color: '#15B9A4' },
+    {
+      title: 'Total Orders',
+      value: statsLoading ? '—' : (os.totalOrders ?? 0),
+      icon: <ShoppingCartOutlined />,
+      color: '#15B9A4',
+    },
+    {
+      title: 'Completed Orders',
+      value: statsLoading ? '—' : (os.completedOrders ?? 0),
+      icon: <CheckCircleOutlined />,
+      color: '#52c41a',
+      path: '/admin/orders?tab=completed',
+    },
+    {
+      title: 'Pending Orders',
+      value: statsLoading ? '—' : (os.pendingOrders ?? 0),
+      icon: <CarOutlined />,
+      color: '#faad14',
+      path: '/admin/orders?tab=pending',
+    },
+    {
+      title: 'Total Revenue',
+      value: statsLoading ? '—' : `₹${(os.totalRevenue ?? 0).toLocaleString('en-IN')}`,
+      icon: <DollarOutlined />,
+      color: '#15B9A4',
+    },
   ]
 
   const recentOrdersColumns = [
-    { title: 'Order ID', dataIndex: 'orderId', key: 'orderId' },
-    { title: 'Retailer', dataIndex: 'retailer', key: 'retailer' },
-    { title: 'Amount', dataIndex: 'amount', key: 'amount' },
-    { title: 'Status', dataIndex: 'status', key: 'status' },
-    { title: 'Date', dataIndex: 'date', key: 'date' },
+    { title: 'Order ID', dataIndex: 'orderId', key: 'orderId', render: (v) => <strong>{v}</strong> },
+    {
+      title: 'Name',
+      key: 'name',
+      render: (_, r) => r.contactName || r.fromName || r.retailer?.businessName || '-',
+    },
+    {
+      title: 'Amount',
+      dataIndex: 'amount',
+      key: 'amount',
+      render: (v) => `₹${(v || 0).toLocaleString('en-IN')}`,
+    },
+    {
+      title: 'Payment Status',
+      dataIndex: 'paymentStatus',
+      key: 'paymentStatus',
+      render: (v) => v || 'Pending',
+    },
+    {
+      title: 'Final Status',
+      dataIndex: 'finalStatus',
+      key: 'finalStatus',
+      render: (v) => v || 'Open',
+    },
+    {
+      title: 'Date',
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      render: (v) => (v ? dayjs(v).format('DD/MM/YYYY') : '-'),
+    },
   ]
-
-  const allRecentOrders = [
-    { key: '1', orderId: 'ORD-001', retailer: 'ABC Store', amount: '₹15,000', status: 'In Process', date: '2024-01-15' },
-    { key: '2', orderId: 'ORD-002', retailer: 'XYZ Mart', amount: '₹22,500', status: 'Billing', date: '2024-01-15' },
-    { key: '3', orderId: 'ORD-003', retailer: 'Super Shop', amount: '₹8,900', status: 'Dispatched', date: '2024-01-14' },
-    { key: '4', orderId: 'ORD-004', retailer: 'Metro Retail', amount: '₹18,200', status: 'Delivered', date: '2024-01-13' },
-    { key: '5', orderId: 'ORD-005', retailer: 'Quick Mart', amount: '₹9,500', status: 'In Process', date: '2024-01-12' },
-  ]
-  const recentOrders = dateRange?.[0] && dateRange?.[1]
-    ? allRecentOrders.filter((o) => {
-        const d = dayjs(o.date)
-        return !d.isBefore(dateRange[0], 'day') && !d.isAfter(dateRange[1], 'day')
-      })
-    : allRecentOrders
 
   return (
     <div>
       <Breadcrumbs />
-      <Space style={{ marginBottom: 24, width: '100%', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-        <Title level={2}>Admin Dashboard</Title>
-        <Space wrap>
-          <RangePicker
-            value={dateRange}
-            onChange={setDateRange}
-            format="DD/MM/YYYY"
-          />
-          <Typography.Text type="secondary">Data for selected date range</Typography.Text>
-        </Space>
-      </Space>
+      <Title level={2} style={{ marginBottom: 24 }}>Admin Dashboard</Title>
 
       <Title level={4} style={{ marginBottom: 16 }}>Retailer Overview</Title>
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
@@ -109,20 +136,10 @@ const AdminDashboard = () => {
         ))}
       </Row>
 
-      {/* <Card title="Approved today (by approval date)" style={{ marginBottom: 24 }}>
-        {approvedTodayList.length > 0 ? (
-          <Table
-            columns={approvedTodayColumns}
-            dataSource={approvedTodayList.map((r) => ({ ...r, key: r._id }))}
-            pagination={false}
-            size="middle"
-          />
-        ) : (
-          <Typography.Text type="secondary">No retailers approved today.</Typography.Text>
-        )}
-      </Card> */}
-
-      <Title level={4} style={{ marginBottom: 16 }}>Order & Revenue Summary ({rangeLabel})</Title>
+      <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <Title level={4} style={{ margin: 0 }}>Order & Revenue Summary ({rangeLabel})</Title>
+        <RangePicker value={dateRange} onChange={setDateRange} format="DD/MM/YYYY" allowClear />
+      </Space>
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         {orderStats.map((stat, index) => (
           <Col xs={24} sm={12} lg={6} key={index}>
@@ -144,9 +161,14 @@ const AdminDashboard = () => {
       <Card title={`Recent Orders (${rangeLabel})`} style={{ marginTop: 24 }}>
         <Table
           columns={recentOrdersColumns}
-          dataSource={recentOrders}
+          dataSource={recentOrders.map((o) => ({ ...o, key: o._id }))}
+          loading={recentLoading}
           pagination={false}
           size="middle"
+          onRow={(record) => ({
+            onClick: () => navigate(`/admin/orders/${record.orderId}`),
+            style: { cursor: 'pointer' },
+          })}
         />
       </Card>
     </div>

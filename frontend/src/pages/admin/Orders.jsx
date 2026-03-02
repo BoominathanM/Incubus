@@ -11,6 +11,7 @@ import {
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useGetOrdersQuery, useUpdateOrderMutation, useBackfillOrdersMutation } from '../../store/api/orderApi'
+import { exportToExcel, fmtDate } from '../../utils/exportToExcel'
 
 const { Title } = Typography
 const { Option } = Select
@@ -241,7 +242,37 @@ const AdminOrders = () => {
             allowClear
           />
           <RangePicker value={dateRange} onChange={setDateRange} allowClear />
-          <Button icon={<ExportOutlined />} onClick={() => message.info('Export coming soon')}>
+          <Button
+            icon={<ExportOutlined />}
+            onClick={() => {
+              if (!orders.length) { message.warning('No orders to export'); return }
+              const rows = orders.map((o) => ({
+                'Order ID': o.orderId,
+                'Created At': fmtDate(o.createdAt),
+                'Name': o.contactName || o.fromName || o.retailer?.businessName || '',
+                'Type': o.type === 'retailer' ? 'Retailer' : 'End User',
+                'Amount': o.amount || 0,
+                'Payment Status': o.paymentStatus || 'Pending',
+                'Billing Verified': o.billingVerified ? 'Yes' : 'No',
+                'Billing Status': o.billingStatus || 'Pending',
+                'Invoice Number': o.invoiceNumber || '',
+                'Warehouse Status': o.warehouseStatus || '',
+                'Dispatch Status': o.dispatchStatus || '',
+                'Delivery Status': o.deliveryStatus || '',
+                'Final Status': o.finalStatus || 'Open',
+                'Contact Number': o.contactNumber || o.from || '',
+                'Delivery Address': o.deliveryAddress || '',
+                'Payment Mode': o.paymentMode || '',
+                'Transaction ID': o.transactionId || '',
+                'Courier': o.courier || '',
+                'AWB': o.awb || '',
+              }))
+              const label = dateRange?.[0] && dateRange?.[1]
+                ? `${dateRange[0].format('YYYYMMDD')}-${dateRange[1].format('YYYYMMDD')}`
+                : dayjs().format('YYYYMMDD')
+              exportToExcel(rows, `Orders-${label}`)
+            }}
+          >
             Export
           </Button>
         </Space>

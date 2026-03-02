@@ -11,6 +11,7 @@ const canViewOrders = requireRole(['admin', 'superadmin', 'billing', 'warehouse'
 
 router.post('/backfill', requireAdminOrSuperadmin, ctrl.backfillOrdersFromWebhooks)
 router.post('/reset-counter', requireAdminOrSuperadmin, ctrl.resetOrderCounter)
+router.get('/stats', canViewOrders, ctrl.getOrderStats)
 router.get('/', canViewOrders, ctrl.getOrders)
 router.get('/:orderId', canViewOrders, ctrl.getOrderById)
 router.post('/', requireAdminOrSuperadmin, ctrl.createOrder)
