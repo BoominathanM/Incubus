@@ -11,6 +11,7 @@ const askevaRoutes = require('./routes/askeva')
 const askevaController = require('./controllers/askevaController')
 const retailerRoutes = require('./routes/retailers')
 const retailerWebhookRoutes = require('./routes/retailerWebhook')
+const orderRoutes = require('./routes/orders')
 const cron = require('node-cron')
 const { syncAllCompanies } = require('./services/productSync.service')
 
@@ -34,15 +35,96 @@ app.use('/api/auth', authRoutes)
 app.use('/api/users', userRoutes)
 app.use('/api/country-codes', countryCodesRoutes)
 // Public webhook routes — must be registered BEFORE authenticated askevaRoutes
+app.get('/api/askeva/webhook/:companyId', askevaController.handleWebhookVerification)
 app.post('/api/askeva/webhook/:companyId', askevaController.handleWebhook)
 app.post('/api/askeva/webhook-catalog/:companyId', askevaController.handleCatalogWebhook)
 app.use('/api/askeva', askevaRoutes)
+// Public endpoint for chatbot — no auth required
+app.get('/api/retailers/active', require('./controllers/retailerController').getActiveRetailers)
 app.use('/api/retailers', retailerRoutes)
 app.use('/api/retailer-webhook', retailerWebhookRoutes)
+app.use('/api/orders', orderRoutes)
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true })
 })
+
+async function backfillOrdersOnStartup() {
+  try {
+    const OrderManagement = require('./models/OrderManagement.model')
+    const WebhookMessage = require('./models/WebhookMessage.model')
+    const { createOrderFromWebhook } = require('./controllers/orderController')
+
+    const existingCount = await OrderManagement.countDocuments()
+    const pendingMessages = await WebhookMessage.find({ messageType: 'order' })
+      .populate('retailer', '_id businessName')
+      .lean()
+
+    if (pendingMessages.length === 0) return
+
+    // Find which webhook messages already have an order
+    const linkedIds = new Set(
+      (await OrderManagement.find(
+        { webhookMessageId: { $in: pendingMessages.map((m) => m._id) } },
+        'webhookMessageId'
+      ).lean()).map((o) => String(o.webhookMessageId))
+    )
+
+    const toCreate = pendingMessages.filter((m) => !linkedIds.has(String(m._id)))
+    if (toCreate.length === 0) {
+      console.log(`[Startup] Order backfill: all ${pendingMessages.length} webhook order(s) already linked`)
+      return
+    }
+
+    console.log(`[Startup] Order backfill: creating ${toCreate.length} missing order(s)...`)
+    let created = 0
+    for (const msg of toCreate) {
+      try {
+        // Parse items from rawPayload
+        const rawItems = []
+        const entries = msg.rawPayload?.entry || []
+        for (const entry of entries) {
+          for (const change of (entry.changes || [])) {
+            for (const rawMsg of (change.value?.messages || [])) {
+              if (rawMsg.type === 'order' && Array.isArray(rawMsg.order?.product_items)) {
+                for (const pi of rawMsg.order.product_items) {
+                  rawItems.push({ productRetailerId: pi.product_retailer_id || '', quantity: Number(pi.quantity) || 1 })
+                }
+              }
+            }
+          }
+        }
+
+        // Fallback: parse from messageBody "SKU x1, SKU2 x3"
+        const bodyItems = []
+        if (rawItems.length === 0 && msg.messageBody) {
+          for (const part of msg.messageBody.split(',')) {
+            const match = part.trim().match(/^(.+?)\s+x(\d+)$/i)
+            if (match) bodyItems.push({ productRetailerId: match[1].trim(), quantity: parseInt(match[2], 10) })
+          }
+        }
+
+        await createOrderFromWebhook({
+          companyId: msg.companyId,
+          webhookMessageId: msg._id,
+          from: msg.from,
+          fromName: msg.fromName,
+          retailerMatched: msg.retailerMatched,
+          retailer: msg.retailer || null,
+          items: rawItems.length > 0 ? rawItems : bodyItems,
+          catalogId: '',
+          messageBody: msg.messageBody,
+        })
+        created++
+      } catch (e) {
+        console.error(`[Startup] Backfill failed for msg ${msg._id}:`, e.message)
+      }
+    }
+    console.log(`[Startup] Order backfill complete: ${created}/${toCreate.length} created`)
+  } catch (e) {
+    console.error('[Startup] Order backfill error:', e.message)
+  }
+}
 
 async function start() {
   await connectDB()
@@ -51,6 +133,9 @@ async function start() {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`)
   })
+
+  // Backfill any existing webhook order messages that don't yet have an order record
+  backfillOrdersOnStartup()
 
   // Start Product Sync Cron Job (Every 5 minutes)
   cron.schedule('*/5 * * * *', () => {

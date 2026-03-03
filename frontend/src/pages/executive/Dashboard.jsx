@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { Row, Col, Card, Statistic, Typography, Select } from 'antd'
+import React, { useState, useMemo } from 'react'
+import { Row, Col, Card, Statistic, Typography, Select, Space, DatePicker } from 'antd'
 import {
   UserOutlined,
   CheckCircleOutlined,
@@ -20,9 +20,11 @@ import {
   Legend,
 } from 'recharts'
 import Breadcrumbs from '../../components/Breadcrumbs'
+import dayjs from 'dayjs'
 import { useGetRetailerStatsQuery, useGetRetailerStatsByDateQuery } from '../../store/api/retailerApi'
 
 const { Title } = Typography
+const { RangePicker } = DatePicker
 
 const CHART_COLORS = {
   requestsRaised: '#15B9A4',
@@ -35,8 +37,18 @@ const AREA_COLOR = '#15B9A4'
 
 const ExecutiveDashboard = () => {
   const [dateGroup, setDateGroup] = useState('day')
+  const [dateRange, setDateRange] = useState([dayjs().startOf('month'), dayjs()])
   const { data: statsData } = useGetRetailerStatsQuery()
-  const { data: byDateData } = useGetRetailerStatsByDateQuery({ group: dateGroup })
+
+  const dateParams = useMemo(() => {
+    if (!dateRange?.[0] || !dateRange?.[1]) return {}
+    return {
+      startDate: dateRange[0].startOf('day').toISOString(),
+      endDate: dateRange[1].endOf('day').toISOString(),
+    }
+  }, [dateRange])
+
+  const { data: byDateData } = useGetRetailerStatsByDateQuery({ group: dateGroup, ...dateParams })
   const s = statsData?.stats ?? {}
   const timeSeriesData = byDateData?.data ?? []
 
@@ -68,11 +80,19 @@ const ExecutiveDashboard = () => {
 
   const hasTimeSeriesData = chartData.length > 0 && chartData.some((d) => d.count > 0)
 
+  const rangeLabel = dateRange?.[0] && dateRange?.[1]
+    ? `${dateRange[0].format('DD/MM/YYYY')} - ${dateRange[1].format('DD/MM/YYYY')}`
+    : 'All Time'
+
   return (
     <div>
       <Breadcrumbs />
-      <Title level={2}>Executive Agent Dashboard</Title>
-      <Row gutter={[16, 16]} style={{ marginTop: 24 }}>
+      <Space style={{ marginBottom: 24, width: '100%', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <Title level={2} style={{ margin: 0 }}>Executive Agent Dashboard</Title>
+        <RangePicker value={dateRange} onChange={setDateRange} format="DD/MM/YYYY" allowClear />
+      </Space>
+
+      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         {stats.map((stat, index) => (
           <Col xs={24} sm={12} lg={6} key={index}>
             <Card>
@@ -87,10 +107,10 @@ const ExecutiveDashboard = () => {
         ))}
       </Row>
 
-      <Row gutter={[16, 16]} style={{ marginTop: 24 }}>
+      <Row gutter={[16, 16]}>
         <Col xs={24} lg={12}>
           <Card
-            title="Requests by date / month (Area)"
+            title={`Requests by date / month (${rangeLabel})`}
             extra={
               <Select
                 value={dateGroup}

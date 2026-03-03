@@ -1,10 +1,47 @@
 const Retailer = require('../models/Retailer')
 const WebhookMessage = require('../models/WebhookMessage.model')
+const { handleWebhookOrderEvent } = require('./orderController')
+
+function parseFlowItems(flowData) {
+  const raw = flowData.items || flowData.products || flowData.order_items || flowData.product || ''
+  const items = []
+  for (const part of String(raw).split(',')) {
+    const match = part.trim().match(/^(.+?)\s+x(\d+)$/i)
+    if (match) items.push({ productRetailerId: match[1].trim(), quantity: parseInt(match[2], 10) })
+  }
+  return items
+}
 
 const COMPANY_ID = process.env.ASKEVA_COMPANY_ID || 'default'
 
 function toDigits(str) {
   return (str || '').replace(/\D/g, '')
+}
+
+/**
+ * GET /api/retailer-webhook/receive/:companyId
+ * Webhook verification — Meta/WhatsApp and some providers send GET with hub.mode, hub.verify_token, hub.challenge.
+ */
+exports.handleWebhookVerification = (req, res) => {
+  try {
+    const { hub_mode, hub_verify_token, hub_challenge } = req.query
+    const mode = hub_mode || req.query['hub.mode']
+    const token = hub_verify_token || req.query['hub.verify_token']
+    const challenge = hub_challenge || req.query['hub.challenge']
+
+    if (mode === 'subscribe' && challenge) {
+      const verifyToken = process.env.WEBHOOK_VERIFY_TOKEN || 'askeva_webhook_verify'
+      if (!token || token === verifyToken) {
+        console.log('[RetailerWebhook] Verification successful')
+        return res.type('text/plain').status(200).send(String(challenge))
+      }
+    }
+    console.warn('[RetailerWebhook] Verification failed — mode:', mode, 'token present:', !!token)
+    return res.status(403).send('Verification failed')
+  } catch (err) {
+    console.error('[RetailerWebhook] Verification error:', err)
+    return res.status(500).send('Verification error')
+  }
 }
 
 /**
@@ -19,13 +56,14 @@ exports.receiveRetailerWebhook = async (req, res) => {
   const companyId = req.params.companyId || COMPANY_ID
   const body = req.body
 
-  console.log('[RetailerWebhook] Incoming payload:', JSON.stringify(body, null, 2))
+  console.log('[RetailerWebhook] Incoming payload for company:', companyId, '| body keys:', Object.keys(body || {}))
 
   const stored = []
   const errors = []
 
   try {
-    const entries = Array.isArray(body?.entry) ? body.entry : []
+    // Support both direct Meta payload and wrapped payloads
+    const entries = Array.isArray(body?.entry) ? body.entry : (Array.isArray(body?.data?.entry) ? body.data.entry : (body?.messages ? [{ changes: [{ value: body }] }] : []))
 
     // ── If NO entries at all (e.g. ping / test run with empty body) ───────────
     if (entries.length === 0) {
@@ -38,57 +76,68 @@ exports.receiveRetailerWebhook = async (req, res) => {
     }
 
     for (const entry of entries) {
-      const changes = Array.isArray(entry?.changes) ? entry.changes : []
+      const changes = Array.isArray(entry?.changes) ? entry.changes : (entry?.value ? [entry] : [])
 
       for (const change of changes) {
-        const value = change?.value || {}
-        const messages = Array.isArray(value?.messages) ? value.messages : []
+        const value = change?.value || change || {}
+        const messages = Array.isArray(value?.messages) ? value.messages : (Array.isArray(value?.message) ? value.message : [])
         const contacts  = Array.isArray(value?.contacts) ? value.contacts : []
         const metadata  = value?.metadata || {}
 
-        // ── Process standard + order-type messages ────────────────────────────
+        // ── Process all messages ──────────────────────────────────────────────
         for (const msg of messages) {
           const from = toDigits(msg.from)
-
-          // Contact display name
           const contact = contacts.find((c) => toDigits(c.wa_id) === from)
           const fromName = contact?.profile?.name || ''
-
-          const messageType = msg.type || 'text'
-
-          // Extract body — handles text, media captions, and WhatsApp order type
-          let messageBody = ''
-          if (msg.text?.body) {
-            messageBody = msg.text.body
-          } else if (msg.order) {
-            // WhatsApp catalog order message
-            const items = Array.isArray(msg.order?.product_items) ? msg.order.product_items : []
-            messageBody = items.map((i) => `${i.product_retailer_id} x${i.quantity}`).join(', ')
-              || `Catalog order: ${msg.order?.catalog_id || ''}`
-          } else if (msg.image?.caption) {
-            messageBody = msg.image.caption
-          } else if (msg.document?.caption) {
-            messageBody = msg.document.caption
-          } else if (msg.video?.caption) {
-            messageBody = msg.video.caption
-          } else if (msg.caption) {
-            messageBody = msg.caption
-          }
-
-          // Extract catalogId — check order payload first, then value, then root body
-          const catalogId =
-            msg?.order?.catalog_id ||
-            value?.catalog_id ||
-            value?.catalogId ||
-            body?.catalog_id ||
-            body?.catalogId ||
-            null
-
-          const timestamp = msg.timestamp
-            ? new Date(parseInt(msg.timestamp, 10) * 1000)
-            : new Date()
-
+          const msgType = msg.type || 'text'
+          const timestamp = msg.timestamp ? new Date(parseInt(msg.timestamp, 10) * 1000) : new Date()
           const activeRetailer = from ? await findActiveRetailer(from) : null
+
+          // ── Parse content and decide if an order should be created ───────────
+          let messageBody = ''
+          let orderItems = []
+          let catalogId = msg?.order?.catalog_id || value?.catalog_id || body?.catalog_id || ''
+          let extraFields = {}
+          let shouldCreateOrder = false
+
+          if (msgType === 'order' && msg.order) {
+            // WhatsApp catalog order
+            orderItems = (msg.order.product_items || []).map((i) => ({
+              productRetailerId: i.product_retailer_id || '',
+              quantity: Number(i.quantity) || 1,
+            }))
+            messageBody = orderItems.map((i) => `${i.productRetailerId} x${i.quantity}`).join(', ')
+              || `Catalog order: ${catalogId}`
+            shouldCreateOrder = true
+
+          } else if (msgType === 'interactive' && msg.interactive?.type === 'nfm_reply') {
+            // WhatsApp Flow form submission
+            try {
+              const flowData = JSON.parse(msg.interactive.nfm_reply?.response_json || '{}')
+              orderItems = parseFlowItems(flowData)
+              extraFields = {
+                contactName:     flowData.name || flowData.full_name || flowData.contact_name || fromName || '',
+                contactNumber:   flowData.phone || flowData.phone_number || flowData.mobile || from || '',
+                deliveryAddress: flowData.address || flowData.delivery_address || flowData.shipping_address || '',
+              }
+              messageBody = `Flow order from ${fromName || from}`
+              shouldCreateOrder = true
+            } catch (_) { /* malformed JSON */ }
+
+          } else if (msgType === 'payment' && msg.payment) {
+            // WhatsApp Pay notification
+            const pay = msg.payment
+            extraFields = {
+              paymentStatus: pay.status === 'captured' ? 'Success' : 'Pending',
+              transactionId: pay.transaction_id || pay.reference_id || '',
+              paymentMode:   'WhatsApp Pay',
+            }
+            messageBody = `Payment ${pay.status || ''} - txn: ${pay.transaction_id || pay.reference_id || ''}`
+            shouldCreateOrder = true
+
+          } else {
+            messageBody = msg.text?.body || msg.image?.caption || msg.document?.caption || msg.video?.caption || msg.caption || ''
+          }
 
           try {
             const record = await WebhookMessage.create({
@@ -96,7 +145,7 @@ exports.receiveRetailerWebhook = async (req, res) => {
               messageId:       msg.id || '',
               from:            from || 'unknown',
               fromName,
-              messageType,
+              messageType:     msgType,
               messageBody,
               timestamp,
               retailer:        activeRetailer?._id || null,
@@ -112,7 +161,7 @@ exports.receiveRetailerWebhook = async (req, res) => {
               id:              populated._id,
               from:            from || 'unknown',
               fromName,
-              messageType,
+              messageType:     msgType,
               messageBody,
               timestamp,
               catalogId:       catalogId || null,
@@ -123,9 +172,27 @@ exports.receiveRetailerWebhook = async (req, res) => {
               savedAt:         populated.createdAt,
             })
 
-            console.log(
-              `[RetailerWebhook] Stored | from: +${from} | type: ${messageType} | catalogId: ${catalogId || 'none'} | retailer: ${activeRetailer?.businessName || 'none'}`
-            )
+            if (shouldCreateOrder) {
+              handleWebhookOrderEvent({
+                msgType,
+                companyId,
+                webhookMessageId: record._id,
+                from:             from || '',
+                fromName,
+                retailerMatched:  !!activeRetailer,
+                retailer:         activeRetailer || null,
+                items:            orderItems,
+                catalogId:        catalogId || '',
+                messageBody,
+                extraFields,
+              })
+                .then((order) => {
+                  if (order) console.log(`[RetailerWebhook] Order ${order.orderId || order._id} created/updated for ${from}`)
+                })
+                .catch((e) => console.error('[RetailerWebhook] Order creation/update failed:', e.message, e.stack))
+            }
+
+            console.log(`[RetailerWebhook] from: +${from} | type: ${msgType} | shouldCreateOrder: ${shouldCreateOrder} | retailer: ${activeRetailer?.businessName || 'none'}`)
           } catch (saveErr) {
             console.error('[RetailerWebhook] Save error:', saveErr.message)
             errors.push({ from, error: saveErr.message })

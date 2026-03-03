@@ -23,6 +23,6 @@ const baseQueryWithAuth = async (args, api, extraOptions) => {
 export const baseApi = createApi({
   reducerPath: 'api',
   baseQuery: baseQueryWithAuth,
-  tagTypes: ['Users', 'CountryCodes', 'AskevaConfig', 'AskevaTemplates', 'EventMappings', 'Retailers', 'WebhookMessages'],
+  tagTypes: ['Users', 'CountryCodes', 'AskevaConfig', 'AskevaTemplates', 'EventMappings', 'Retailers', 'Orders'],
   endpoints: () => ({}),
 })

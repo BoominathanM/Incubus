@@ -4,6 +4,7 @@ const { authenticate, requireAdminOrSuperadmin } = require('../middleware/auth')
 const ctrl = require('../controllers/retailerWebhookController')
 
 // ── Public — no auth (called by Askeva panel externally) ──────────────────────
+router.get('/receive/:companyId', ctrl.handleWebhookVerification)
 router.post('/receive/:companyId', ctrl.receiveRetailerWebhook)
 
 // ── Protected — admin only ────────────────────────────────────────────────────
