@@ -1,8 +1,97 @@
 const mongoose = require('mongoose')
 const Retailer = require('../models/Retailer')
+const EventTemplateMapping = require('../models/EventTemplateMapping.model')
+const askevaService = require('../services/askeva.service')
 const { validateFileType, uploadToCloudinary } = require('../utils/uploadCloudinary')
 const { generateRetailerId } = require('../utils/retailerId')
 const XLSX = require('xlsx')
+
+const COMPANY_ID = process.env.ASKEVA_COMPANY_ID || 'default'
+
+function resolveRetailerField(retailer, hrmsField) {
+  const cc = (retailer.whatsappCountryCode || '91').replace(/\D/g, '')
+  const num = (retailer.whatsappNumber || '').replace(/\D/g, '')
+  const whatsappFullNumber = cc + num
+  const address = [retailer.street1, retailer.street2, retailer.city, retailer.district, retailer.state, retailer.pincode]
+    .filter(Boolean)
+    .join(', ')
+
+  const map = {
+    'Retailer ID': retailer.retailerId || '',
+    'Business Name': retailer.businessName || '',
+    'Store Name': retailer.storeName || '',
+    'Contact Person': retailer.contactPerson || '',
+    'WhatsApp Number': whatsappFullNumber || num,
+    'Status': retailer.status || '',
+    'Rejected Reason': retailer.rejectedReason || '',
+    'Approved Date': retailer.approvedAt ? new Date(retailer.approvedAt).toLocaleDateString() : '',
+    'Rejected Date': retailer.rejectedAt ? new Date(retailer.rejectedAt).toLocaleDateString() : '',
+    'Address': address,
+  }
+
+  return map[hrmsField] ?? ''
+}
+
+async function sendRetailerNotification(retailer, eventType, companyId = COMPANY_ID) {
+  try {
+    let mapping = await EventTemplateMapping.findOne({
+      companyId,
+      hrmsEventType: eventType,
+      isEnabled: { $ne: false },
+    })
+      .populate('templateId', 'templateName language')
+      .lean()
+
+    if (!mapping || !mapping.templateId) {
+      mapping = await EventTemplateMapping.findOne({
+        hrmsEventType: eventType,
+        isEnabled: { $ne: false },
+      })
+        .populate('templateId', 'templateName language')
+        .lean()
+    }
+
+    if (!mapping || !mapping.templateId) {
+      console.log(`[RetailerNotify] No active mapping for event '${eventType}' - skipping`)
+      return
+    }
+
+    const resolvedCompanyId = mapping.companyId || companyId
+    const templateName = mapping.templateName || mapping.templateId.templateName
+    const language = (mapping.templateId.language || 'en').toLowerCase()
+
+    const parameters = {}
+    for (const v of (mapping.variables || [])) {
+      const val = resolveRetailerField(retailer, v.hrmsField) || v.defaultValue || ''
+      const key = v.templateVariable.replace(/\{\{|\}\}/g, '').trim()
+      parameters[key] = val
+    }
+
+    const cc = (retailer.whatsappCountryCode || '91').replace(/\D/g, '')
+    const num = (retailer.whatsappNumber || '').replace(/\D/g, '')
+    const recipient = cc + num
+    if (!recipient || recipient.length < 10) {
+      console.warn(`[RetailerNotify] Invalid WhatsApp number for retailer ${retailer.retailerId || retailer._id} - skipping`)
+      return
+    }
+
+    console.log(`[RetailerNotify] Sending '${eventType}' to ${recipient} for retailer ${retailer.retailerId || retailer._id} | template: ${templateName} | params:`, parameters)
+
+    const result = await askevaService.sendMessage({
+      companyId: resolvedCompanyId,
+      module: 'retailer',
+      payload: { to: recipient, templateName, language, parameters },
+    })
+
+    if (result.success) {
+      console.log(`[RetailerNotify] Sent '${eventType}' to ${recipient} for retailer ${retailer.retailerId || retailer._id}`)
+    } else {
+      console.warn(`[RetailerNotify] Failed to send '${eventType}' to ${recipient}:`, result.error)
+    }
+  } catch (err) {
+    console.error(`[RetailerNotify] Error sending '${eventType}' for retailer ${retailer?.retailerId || retailer?._id}:`, err.message)
+  }
+}
 
 // Public: returns all active retailers in chatbot-friendly format
 async function getActiveRetailers(req, res) {
@@ -284,6 +373,7 @@ async function approve(req, res) {
     } catch (_) {
       // Populate failed (e.g. deleted user ref); approval still succeeded
     }
+    sendRetailerNotification(retailer, 'Approve Retailer', COMPANY_ID)
     return res.json({ success: true, retailer })
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message || 'Approve failed' })
@@ -310,6 +400,7 @@ async function reject(req, res) {
       const populated = await Retailer.findById(r._id).populate('createdBy', 'name email').lean()
       if (populated) retailer = populated
     } catch (_) {}
+    sendRetailerNotification(retailer, 'Reject Retailer', COMPANY_ID)
     return res.json({ success: true, retailer })
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message || 'Reject failed' })

@@ -91,7 +91,6 @@ const orderManagementSchema = new mongoose.Schema(
 )
 
 orderManagementSchema.index({ companyId: 1, createdAt: -1 })
-orderManagementSchema.index({ orderId: 1 })
 orderManagementSchema.index({ type: 1 })
 orderManagementSchema.index({ retailer: 1 })
 orderManagementSchema.index({ paymentStatus: 1 })

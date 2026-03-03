@@ -61,6 +61,8 @@ const INCUBUS_EVENT_OPTIONS = [
   { value: 'Billing Invoice Generate', label: 'Billing Invoice' },
   { value: 'Dispatch Order', label: 'Dispatch Order' },
   { value: 'Delivery Completed', label: 'Delivery Completed' },
+  { value: 'Approve Retailer', label: 'Approve Retailer' },
+  { value: 'Reject Retailer', label: 'Reject Retailer' },
 ]
 
 const TEMPLATE_FIELD_OPTIONS = [
@@ -74,6 +76,16 @@ const TEMPLATE_FIELD_OPTIONS = [
   { value: 'Delivery Status', label: 'Delivery Status' },
   { value: 'Delivery Type', label: 'Delivery Type' },
   { value: 'Tracking URL', label: 'Tracking URL' },
+  { value: 'Retailer ID', label: 'Retailer ID' },
+  { value: 'Business Name', label: 'Business Name' },
+  { value: 'Store Name', label: 'Store Name' },
+  { value: 'Contact Person', label: 'Contact Person' },
+  { value: 'WhatsApp Number', label: 'WhatsApp Number' },
+  { value: 'Status', label: 'Status' },
+  { value: 'Rejected Reason', label: 'Rejected Reason' },
+  { value: 'Approved Date', label: 'Approved Date' },
+  { value: 'Rejected Date', label: 'Rejected Date' },
+  { value: 'Address', label: 'Address' },
 ]
 
 const WhatsAppIntegration = () => {
