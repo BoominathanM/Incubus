@@ -8,12 +8,270 @@ const Retailer = require('../models/Retailer')
 const askevaService = require('../services/askeva.service')
 const productSyncService = require('../services/productSync.service')
 const { encrypt, decrypt } = require('../utils/encryption.util')
+const { generateRetailerId } = require('../utils/retailerId')
+const { responseJsonHasRetailerFormCopy, getFlowTokenFromResponseJson, verifyWebhookFlowFromRaw, FLOW_TOKEN_RETAILER, FLOW_TOKEN_DELIVERY } = require('../services/retailerFromFlow')
 
 /** Normalize a phone number to digits only (strip + and spaces). */
 function normalizePhone(countryCode, number) {
   const cc = (countryCode || '').replace(/\D/g, '')
   const num = (number || '').replace(/\D/g, '')
   return cc + num
+}
+
+function normalizeKey(key) {
+  return String(key || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+/** Extract flow_token from flowData — checks all keys case-insensitively */
+function extractFlowToken(flowData) {
+  if (!flowData || typeof flowData !== 'object') return ''
+  const targetKey = 'flowtoken'
+  for (const k of Object.keys(flowData)) {
+    if (normalizeKey(k) === targetKey) {
+      const v = flowData[k]
+      return String(v != null ? v : '').trim().toLowerCase()
+    }
+  }
+  return ''
+}
+
+/** Recursively search object for flow_token (any nesting, e.g. at end of JSON) */
+function findFlowTokenRecursive(obj, depth = 0) {
+  if (!obj || typeof obj !== 'object' || depth > 10) return ''
+  for (const k of Object.keys(obj)) {
+    if (normalizeKey(k) === 'flowtoken') {
+      const v = obj[k]
+      const s = String(v != null ? v : '').trim().toLowerCase()
+      if (s) return s
+    }
+    if (typeof obj[k] === 'object' && obj[k] !== null) {
+      const found = findFlowTokenRecursive(obj[k], depth + 1)
+      if (found) return found
+    }
+  }
+  return ''
+}
+
+/** Parse response_json and extract flow_token — supports nested, anywhere in JSON, or raw string match */
+function parseFlowTokenFromResponseJson(rawJson) {
+  if (!rawJson) return ''
+  const rawStr = typeof rawJson === 'string' ? rawJson : JSON.stringify(rawJson || {})
+  if (/retailer_form_copy/i.test(rawStr)) return 'retailer_form_copy'
+  if (/delivery_address_copy/i.test(rawStr)) return 'delivery_address_copy'
+  if (/delivery_address_copy/i.test(rawStr)) return 'delivery_address_copy'
+  let flowData = {}
+  try {
+    flowData = typeof rawJson === 'string' ? JSON.parse(rawJson || '{}') : (rawJson || {})
+  } catch (_) { return '' }
+  let tok = extractFlowToken(flowData)
+  if (tok) return tok
+  if (flowData.data && typeof flowData.data === 'object') tok = extractFlowToken(flowData.data)
+  if (tok) return tok
+  if (flowData.response && typeof flowData.response === 'object') tok = extractFlowToken(flowData.response)
+  if (tok) return tok
+  return findFlowTokenRecursive(flowData) || ''
+}
+
+function findFlowResponseInObject(obj, depth = 0) {
+  if (!obj || typeof obj !== 'object' || depth > 15) return null
+  for (const k of Object.keys(obj)) {
+    const lower = k.toLowerCase()
+    if ((lower === 'response_json' || lower === 'responsejson' || lower === 'response') && obj[k]) return obj[k]
+    if ((lower === 'nfm_reply' || lower === 'nfmreply' || lower === 'flow_response' || lower === 'flow_response_data') && obj[k]) {
+      const v = obj[k]
+      if (typeof v === 'string') return v
+      if (typeof v === 'object' && v !== null) {
+        const inner = v.response_json || v.responseJson || v.response || v.data
+        if (inner != null) return typeof inner === 'string' ? inner : JSON.stringify(inner)
+        if (/retailer_form_copy|flow_token/i.test(JSON.stringify(v))) return JSON.stringify(v)
+      }
+    }
+  }
+  for (const k of Object.keys(obj)) {
+    const v = obj[k]
+    if (typeof v === 'object' && v !== null) {
+      const found = findFlowResponseInObject(v, depth + 1)
+      if (found) return found
+    }
+  }
+  return null
+}
+/** Extract flow JSON from raw body string when retailer_form_copy is present */
+function extractFlowDataFromBodyString(bodyStr) {
+  if (!bodyStr || typeof bodyStr !== 'string') return null
+  if (!/retailer_form_copy/i.test(bodyStr)) return null
+  const re = /"(?:response_json|responseJson|response)"\s*:\s*"((?:\\.|[^"\\])+)"/i
+  const m = bodyStr.match(re)
+  if (m && m[1]) {
+    try {
+      let raw = m[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\')
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed === 'object') return parsed
+    } catch (_) {
+      try {
+        const parsed = JSON.parse(m[1])
+        if (parsed && typeof parsed === 'object') return parsed
+      } catch (_2) {}
+    }
+  }
+  return null
+}
+
+/** Pre-scan: true ONLY when response_json flow_token is retailer_form_copy. Single source of truth. */
+function payloadContainsRetailerFormCopy(messages, fullBody = null) {
+  const payload = fullBody || (messages && messages.length ? { entry: [{ changes: [{ value: { messages } }] }] } : null)
+  return getFlowTokenFromResponseJson(payload) === FLOW_TOKEN_RETAILER
+}
+
+function getFlowValue(flowData, keys) {
+  if (!flowData || typeof flowData !== 'object') return ''
+  const sources = [flowData]
+  if (flowData.data && typeof flowData.data === 'object') sources.push(flowData.data)
+  if (flowData.response && typeof flowData.response === 'object') sources.push(flowData.response)
+  for (const src of sources) {
+    const keyMap = new Map(Object.keys(src).map((k) => [normalizeKey(k), k]))
+    for (const rawKey of keys) {
+      const original = keyMap.get(normalizeKey(rawKey))
+      if (!original) continue
+      let value = src[original]
+      if (value == null) continue
+      if (typeof value === 'object' && value !== null && 'payload' in value) value = value.payload
+      if (value == null) continue
+      if (typeof value === 'string') return value.trim()
+      if (typeof value === 'number') return String(value)
+      if (typeof value === 'boolean') return value ? 'true' : 'false'
+      if (Array.isArray(value)) return value.length ? String(value[0]) : ''
+      if (typeof value === 'object') return JSON.stringify(value)
+    }
+  }
+  return ''
+}
+
+function detectRetailerOnboardingFlow(flowData) {
+  const businessName = getFlowValue(flowData, ['Business Name (GST)', 'Business Name', 'businessName'])
+  const storeName = getFlowValue(flowData, ['Store Name', 'storeName'])
+  const gst = getFlowValue(flowData, ['GST Number', 'GST', 'gst'])
+  const pan = getFlowValue(flowData, ['PAN Number', 'PAN', 'pan'])
+  const street1 = getFlowValue(flowData, ['Street Name 1', 'Street1', 'street1'])
+  const city = getFlowValue(flowData, ['City Name', 'City', 'city'])
+
+  // Strong signal: "Business Name (GST)" + "Store Name" = retailer onboarding
+  if (businessName && storeName) return true
+  if (storeName && (gst || pan)) return true
+  if (businessName && gst && pan && (street1 || city)) return true
+
+  // Fallback: 4+ onboarding-like fields present
+  const fieldChecks = [
+    businessName || getFlowValue(flowData, ['Business Name (GST)', 'Business Name', 'businessName']),
+    storeName || getFlowValue(flowData, ['Store Name', 'storeName']),
+    getFlowValue(flowData, ['Name', 'Contact Person', 'contactPerson']),
+    getFlowValue(flowData, ['Mobile Number', 'Phone', 'phone_number', 'mobile', 'Mob']),
+    getFlowValue(flowData, ['Email ID', 'Email', 'email']),
+    getFlowValue(flowData, ['GST Number', 'GST', 'gst']),
+    getFlowValue(flowData, ['PAN Number', 'PAN', 'pan']),
+    getFlowValue(flowData, ['Street Name 1', 'Street1', 'street1']),
+    getFlowValue(flowData, ['City Name', 'City', 'city']),
+    getFlowValue(flowData, ['District Name', 'District', 'district']),
+    getFlowValue(flowData, ['State', 'state']),
+    getFlowValue(flowData, ['Pin Code', 'Pincode', 'postalCode', 'zip']),
+  ]
+  const presentCount = fieldChecks.filter((v) => String(v || '').trim() !== '').length
+  const hasBusinessFields = !!(businessName || gst || pan)
+  return hasBusinessFields && presentCount >= 4
+}
+
+function splitPhoneFromWaId(waIdDigits) {
+  const digits = String(waIdDigits || '').replace(/\D/g, '')
+  if (!digits) return { countryCode: '+91', number: '' }
+  if (digits.length <= 10) return { countryCode: '+91', number: digits }
+  const number = digits.slice(-10)
+  const countryCode = `+${digits.slice(0, -10)}`
+  return { countryCode, number }
+}
+
+function normalizeBranchCount(value) {
+  const n = parseInt(String(value || '').trim(), 10)
+  return Number.isNaN(n) || n < 1 ? 1 : n
+}
+
+async function upsertRetailerFromFlow({ fromNumber, fromName, flowData }) {
+  // Prefer form's Mobile Number for retailer identity when present (business contact)
+  const formMobile = (getFlowValue(flowData, ['Mobile Number', 'Phone', 'phone_number', 'mobile', 'Mob', 'phone']) || '').replace(/\D/g, '')
+  const primaryPhone = formMobile.length >= 10 ? formMobile : (fromNumber || '')
+  const { countryCode, number } = splitPhoneFromWaId(primaryPhone || fromNumber)
+
+  const businessName = getFlowValue(flowData, ['Business Name (GST)', 'Business Name', 'businessName'])
+  const storeName = getFlowValue(flowData, ['Store Name', 'storeName'])
+  const contactPerson = getFlowValue(flowData, ['Name', 'Contact Person', 'contactPerson']) || fromName || businessName
+  const email = (getFlowValue(flowData, ['Email ID', 'Email', 'email']) || '').toLowerCase()
+  const gst = getFlowValue(flowData, ['GST Number', 'GST', 'gst'])
+  const pan = getFlowValue(flowData, ['PAN Number', 'PAN', 'pan'])
+  const street1 = getFlowValue(flowData, ['Street Name 1', 'Street1', 'street1'])
+  const street2 = getFlowValue(flowData, ['Street Name 2', 'Street2', 'street2'])
+  const city = getFlowValue(flowData, ['City Name', 'City', 'city'])
+  const district = getFlowValue(flowData, ['District Name', 'District', 'district'])
+  const state = getFlowValue(flowData, ['State', 'state'])
+  const pincode = getFlowValue(flowData, ['Pin Code', 'Pincode', 'postalCode', 'zip'])
+  const altContactNumberRaw = getFlowValue(flowData, ['Alternate Number', 'Alternative Number', 'Alt Number', 'alternateNumber'])
+  const branchesRaw = getFlowValue(flowData, ['Number of Branches', 'Branches', 'numberOfBranches'])
+
+  const altDigits = String(altContactNumberRaw || '').replace(/\D/g, '')
+  const altContactNumber = altDigits.length > 10 ? altDigits.slice(-10) : altDigits
+  const altContactCountryCode = altDigits.length > 10 ? `+${altDigits.slice(0, -10)}` : (altContactNumber ? countryCode : '')
+
+  const existingByWhatsApp = await Retailer.findOne({
+    whatsappCountryCode: countryCode,
+    whatsappNumber: number,
+  })
+
+  if (existingByWhatsApp) {
+    if (['active', 'approved', 'disabled'].includes(existingByWhatsApp.status)) {
+      return existingByWhatsApp
+    }
+    existingByWhatsApp.businessName = businessName || existingByWhatsApp.businessName
+    existingByWhatsApp.storeName = storeName || existingByWhatsApp.storeName
+    existingByWhatsApp.contactPerson = contactPerson || existingByWhatsApp.contactPerson
+    existingByWhatsApp.email = email || existingByWhatsApp.email
+    existingByWhatsApp.gst = gst || existingByWhatsApp.gst
+    existingByWhatsApp.pan = pan || existingByWhatsApp.pan
+    existingByWhatsApp.street1 = street1 || existingByWhatsApp.street1
+    existingByWhatsApp.street2 = street2 || existingByWhatsApp.street2
+    existingByWhatsApp.city = city || existingByWhatsApp.city
+    existingByWhatsApp.district = district || existingByWhatsApp.district
+    existingByWhatsApp.state = state || existingByWhatsApp.state
+    existingByWhatsApp.pincode = pincode || existingByWhatsApp.pincode
+    existingByWhatsApp.altContactCountryCode = altContactCountryCode || existingByWhatsApp.altContactCountryCode
+    existingByWhatsApp.altContactNumber = altContactNumber || existingByWhatsApp.altContactNumber
+    existingByWhatsApp.branches = branchesRaw ? normalizeBranchCount(branchesRaw) : existingByWhatsApp.branches
+    existingByWhatsApp.status = 'pending_approval'
+    existingByWhatsApp.rejectedReason = ''
+    existingByWhatsApp.rejectedAt = null
+    await existingByWhatsApp.save()
+    return existingByWhatsApp
+  }
+
+  const doc = await Retailer.create({
+    retailerId: await generateRetailerId(),
+    businessName: businessName || contactPerson || `Retailer ${number}`,
+    storeName: storeName || '',
+    contactPerson: contactPerson || businessName || 'Retailer',
+    email: email || '',
+    whatsappCountryCode: countryCode,
+    whatsappNumber: number,
+    altContactCountryCode: altContactCountryCode || '',
+    altContactNumber: altContactNumber || '',
+    gst: gst || 'NA',
+    pan: pan || 'NA',
+    street1: street1 || 'NA',
+    street2: street2 || '',
+    city: city || 'NA',
+    district: district || 'NA',
+    state: state || 'NA',
+    pincode: pincode || 'NA',
+    branches: normalizeBranchCount(branchesRaw),
+    status: 'pending_approval',
+  })
+  return doc
 }
 
 /**
@@ -661,6 +919,7 @@ exports.sendMessage = async (req, res) => {
  * Must return hub.challenge to complete verification.
  */
 exports.handleWebhookVerification = async (req, res) => {
+  console.log("oiiii4343")
   try {
     const { hub_mode, hub_verify_token, hub_challenge } = req.query
     const mode = hub_mode || req.query['hub.mode']
@@ -684,15 +943,24 @@ exports.handleWebhookVerification = async (req, res) => {
 
 exports.handleWebhook = async (req, res) => {
   try {
-    const { companyId } = req.params
+    const rawCompanyId = req.params.companyId || ''
+    const companyId = (rawCompanyId && !rawCompanyId.startsWith(':'))
+      ? rawCompanyId
+      : (process.env.ASKEVA_COMPANY_ID || 'default')
 
-    console.log('[Webhook] POST received for company:', companyId, '| body keys:', Object.keys(req.body || {}))
+    let body = req.body && typeof req.body === 'object' ? req.body : {}
+    if (Object.keys(body || {}).length === 0 && req.rawBody && typeof req.rawBody === 'string' && req.rawBody.trim()) {
+      try { body = JSON.parse(req.rawBody) } catch (_) {
+        try { const qs = require('querystring'); const p = qs.parse(req.rawBody); body = (p.payload && typeof p.payload === 'string') ? JSON.parse(p.payload) : p } catch (_) {}
+      }
+    }
+    console.log('[Webhook] POST received for company:', companyId, '| body keys:', Object.keys(body || {}))
 
     // Optional signature verification — only if webhookSecret is stored
     const config = await AskevaConfig.findOne({ companyId }).select('+webhookSecret').lean()
     if (config?.webhookSecret) {
       const signature = req.headers['x-hub-signature-256']
-      const payload = JSON.stringify(req.body)
+      const payload = req.rawBody && typeof req.rawBody === 'string' ? req.rawBody : JSON.stringify(body)
       const secret = decrypt(config.webhookSecret)
       const isValid = askevaService.verifyWebhookSignature(payload, signature || '', secret)
       if (!isValid) {
@@ -704,7 +972,7 @@ exports.handleWebhook = async (req, res) => {
     res.status(200).json({ success: true })
 
     // Process asynchronously
-    processWebhookPayload(companyId, req.body).catch((e) =>
+    processWebhookPayload(companyId, body).catch((e) =>
       console.error('[Webhook] Processing error:', e.message)
     )
   } catch (err) {
@@ -727,11 +995,17 @@ async function processWebhookPayload(companyId, body) {
     for (const change of changes) {
       const value = change.value || change
       const contacts = value.contacts || []
-      const messages = value.messages || value.message || (Array.isArray(value) ? value : [])
+      let messages = value.messages || value.message || (Array.isArray(value) ? value : [])
+      if (!Array.isArray(messages)) messages = messages && typeof messages === 'object' ? [messages] : []
+      // Verify from raw JSON: response_json flow_token → retailer_form_copy (retailer only) or delivery_address_copy (order only)
+      const verified = verifyWebhookFlowFromRaw(body || {})
+      const isRetailerFormPayload = verified.isRetailerFlow || payloadContainsRetailerFormCopy(messages, body)
+      if (verified.isRetailerFlow) console.log('[Webhook] Verified from raw: flow_token=retailer_form_copy → Retailer only, NO order')
+      if (verified.isOrderFlow) console.log('[Webhook] Verified from raw: flow_token=delivery_address_copy → Order flow only')
 
       for (const msg of messages) {
         try {
-          const fromNumber = (msg.from || msg.sender_id || '').replace(/\D/g, '')
+          const fromNumber = (msg.from || msg.sender_id || msg.senderId || msg.wa_id || contacts[0]?.wa_id || '').replace(/\D/g, '')
           if (!fromNumber) continue
 
           const contact = contacts.find((c) => (c.wa_id || '').replace(/\D/g, '') === fromNumber)
@@ -746,34 +1020,68 @@ async function processWebhookPayload(companyId, body) {
         let catalogId = ''
         let extraFields = {}
         let shouldCreateOrder = false
+        let flowToken = ''
+        let flowResponseData = null
 
         if (msgType === 'order' && msg.order) {
-          // WhatsApp catalog order
-          catalogId = msg.order.catalog_id || ''
-          orderItems = (msg.order.product_items || []).map((pi) => ({
-            productRetailerId: pi.product_retailer_id || '',
-            quantity: Number(pi.quantity) || 1,
-          }))
-          messageBody = orderItems.map((i) => `${i.productRetailerId} x${i.quantity}`).join(', ')
-            || `Catalog order: ${catalogId}`
-          shouldCreateOrder = true
+          // WhatsApp catalog order — skip if payload has retailer_form_copy (onboarding flow)
+          if (isRetailerFormPayload) {
+            shouldCreateOrder = false
+          } else {
+            catalogId = msg.order.catalog_id || ''
+            orderItems = (msg.order.product_items || []).map((pi) => ({
+              productRetailerId: pi.product_retailer_id || '',
+              quantity: Number(pi.quantity) || 1,
+            }))
+            messageBody = orderItems.map((i) => `${i.productRetailerId} x${i.quantity}`).join(', ')
+              || `Catalog order: ${catalogId}`
+            shouldCreateOrder = orderItems.length > 0
+          }
 
-        } else if (msgType === 'interactive' && msg.interactive?.type === 'nfm_reply') {
-          // WhatsApp Flow form submission
+        } else if ((msgType === 'interactive' && (msg.interactive?.type === 'nfm_reply' || msg.interactive?.nfm_reply || msg.interactive?.nfmReply)) || (isRetailerFormPayload && findFlowResponseInObject(msg))) {
+          const nfmReply = msg.interactive?.nfm_reply || msg.interactive?.nfmReply || msg.interactive?.data?.nfm_reply || {}
+          let rawJson = nfmReply?.response_json || nfmReply?.responseJson || nfmReply?.response || ''
+          if (!rawJson) {
+            const found = findFlowResponseInObject(msg)
+            if (found) rawJson = typeof found === 'string' ? found : JSON.stringify(found)
+          }
+          let flowData = {}
           try {
-            const flowData = JSON.parse(msg.interactive.nfm_reply?.response_json || '{}')
-            orderItems = parseFlowItems(flowData)
-            extraFields = {
-              contactName:     flowData.name || flowData.full_name || flowData.contact_name || fromName || '',
-              contactNumber:   flowData.phone || flowData.phone_number || flowData.mobile || fromNumber || '',
-              deliveryAddress: flowData.address || flowData.delivery_address || flowData.shipping_address || '',
+            flowData = typeof rawJson === 'string' ? JSON.parse(rawJson || '{}') : (rawJson || {})
+            flowResponseData = flowData
+          } catch (_) {
+            flowData = {}
+            flowResponseData = { _raw: String(rawJson || '').slice(0, 1000) }
+          }
+          // Only two flow_token values: retailer_form_copy → Retailer; delivery_address_copy → order
+          flowToken = getFlowTokenFromResponseJson(flowData) || getFlowTokenFromResponseJson(rawJson) || ''
+          const isRetailerToken = flowToken === FLOW_TOKEN_RETAILER
+          const isDeliveryToken = flowToken === FLOW_TOKEN_DELIVERY
+          console.log('[Webhook] interactive nfm_reply | flow_token:', flowToken || '(empty)', '| from:', fromNumber)
+
+          if (isRetailerToken) {
+            try {
+              const retailer = await upsertRetailerFromFlow({ fromNumber, fromName, flowData })
+              console.log('[Webhook] Retailer created (retailer_form_copy):', retailer?.retailerId, '| status:', retailer?.status)
+            } catch (err) {
+              console.error('[Webhook] upsertRetailerFromFlow failed:', err.message)
             }
-            messageBody = `Flow order from ${fromName || fromNumber}`
+            messageBody = `Retailer onboarding (${FLOW_TOKEN_RETAILER}) from ${fromName || fromNumber}`
+            shouldCreateOrder = false
+          } else if (isDeliveryToken) {
+            extraFields = {
+              contactName:   getFlowValue(flowData, ['Name', 'Contact Name', 'contactName', 'full_name', 'name']) || fromName || '',
+              contactNumber: getFlowValue(flowData, ['Mobile Number', 'Phone', 'phone_number', 'mobile', 'Mob', 'phone']) || fromNumber || '',
+              deliveryAddress: getFlowValue(flowData, ['Delivery Address', 'Address', 'delivery_address', 'shipping_address', 'address']) || '',
+            }
+            messageBody = `Delivery form (${flowToken}) from ${fromName || fromNumber}`
             shouldCreateOrder = true
-          } catch (_) { /* malformed JSON — skip order creation */ }
+          } else {
+            messageBody = `Flow submission from ${fromName || fromNumber}`
+            shouldCreateOrder = false
+          }
 
         } else if (msgType === 'payment' && msg.payment) {
-          // WhatsApp Pay notification
           const pay = msg.payment
           extraFields = {
             paymentStatus:  pay.status === 'captured' ? 'Success' : 'Pending',
@@ -781,34 +1089,49 @@ async function processWebhookPayload(companyId, body) {
             paymentMode:    'WhatsApp Pay',
           }
           messageBody = `Payment ${pay.status || ''} - txn: ${pay.transaction_id || pay.reference_id || ''}`
-          shouldCreateOrder = true
+          shouldCreateOrder = !isRetailerFormPayload
 
         } else {
           messageBody = msg.text?.body || msg.caption || msg.image?.caption || msg.document?.caption || ''
         }
 
         // ── Store in WebhookMessage ───────────────────────────────────────────
+        const storedFlowToken = flowToken || getFlowTokenFromResponseJson(body || {})
         const savedMsg = await WebhookMessage.create({
           companyId,
-          messageId:       msg.id || '',
-          from:            fromNumber,
+          messageId:        msg.id || '',
+          from:             fromNumber,
           fromName,
-          messageType:     msgType,
-          messageBody,
-          timestamp:       ts,
-          retailer:        retailer?._id || null,
-          retailerMatched: !!retailer,
-          rawPayload:      { entry: body.entry },
+          messageType:      msgType,
+          messageBody:      (isRetailerFormPayload && !messageBody) ? `Retailer onboarding (${FLOW_TOKEN_RETAILER}) from ${fromName || fromNumber}` : messageBody,
+          flowToken:        storedFlowToken,
+          flowResponseData: flowResponseData || undefined,
+          timestamp:        ts,
+          retailer:         retailer?._id || null,
+          retailerMatched:  !!retailer,
+          rawPayload:       body,
         })
 
         console.log(`[Webhook] from: ${fromNumber} | type: ${msgType} | retailer: ${retailer?.businessName || 'none'} | shouldCreateOrder: ${shouldCreateOrder}`)
 
-        // ── Auto-create/update order (one order per user flow) ──────────────────
-        if (shouldCreateOrder) {
+        // FINAL: Verify from raw — retailer_form_copy → retailer only; NEVER create order
+        const verifiedFinal = verifyWebhookFlowFromRaw(body || {})
+        const isRetailerFormPayloadFinal = verifiedFinal.isRetailerFlow || getFlowTokenFromResponseJson(body || {}) === FLOW_TOKEN_RETAILER || (() => {
+          try {
+            const { responseJsonStringHasRetailerFormCopy } = require('../services/retailerFromFlow')
+            return responseJsonStringHasRetailerFormCopy(body || {})
+          } catch (_) { return false }
+        })()
+        if (verifiedFinal.isRetailerFlow) shouldCreateOrder = false
+        if (isRetailerFormPayloadFinal) shouldCreateOrder = false
+        // STRICT: Only create/update order when response_json has delivery_address_copy (flow) OR catalog order OR payment — NEVER for retailer_form_copy
+        const thisMessageAllowedForOrder = (msgType === 'order' && orderItems.length > 0) || (msgType === 'interactive' && flowToken === FLOW_TOKEN_DELIVERY) || msgType === 'payment'
+        if (shouldCreateOrder && !isRetailerFormPayloadFinal && flowToken !== FLOW_TOKEN_RETAILER && !verifiedFinal.isRetailerFlow && thisMessageAllowedForOrder) {
           handleWebhookOrderEvent({
             msgType,
             companyId,
             webhookMessageId: savedMsg._id,
+            flowToken: flowToken || '',
             from:             fromNumber,
             fromName,
             retailerMatched:  !!retailer,
@@ -817,6 +1140,7 @@ async function processWebhookPayload(companyId, body) {
             catalogId,
             messageBody,
             extraFields,
+            rawPayload:       body,
           })
             .then((order) => {
               if (order) console.log(`[Webhook] Order ${order.orderId || order._id} created/updated for ${fromNumber}`)
@@ -828,8 +1152,70 @@ async function processWebhookPayload(companyId, body) {
         }
       }
 
+      // Fallback: only when verified from raw flow_token is retailer_form_copy — create retailer
+      if (verified.isRetailerFlow && messages.length > 0) {
+        let flowRaw = findFlowResponseInObject(body) || (() => { for (const m of messages) { const f = findFlowResponseInObject(m); if (f) return f } return null })()
+        if (!flowRaw) {
+          const extracted = extractFlowDataFromBodyString(JSON.stringify(body || {}))
+          if (extracted) flowRaw = extracted
+        }
+        const firstMsg = messages[0]
+        let fallbackFrom = (firstMsg?.from || firstMsg?.sender_id || firstMsg?.wa_id || '').replace(/\D/g, '')
+        const firstContact = contacts.find((c) => c?.wa_id) || contacts[0]
+        const fallbackName = firstContact?.profile?.name || ''
+        const flowData = flowRaw ? (typeof flowRaw === 'string' ? (() => { try { return JSON.parse(flowRaw || '{}') } catch (_) { return {} } })() : flowRaw) : {}
+        if (!fallbackFrom) fallbackFrom = (getFlowValue(flowData, ['Mobile Number', 'Phone', 'phone_number', 'mobile', 'Mob', 'phone', 'contactNumber']) || '').replace(/\D/g, '')
+        if (fallbackFrom) {
+          try {
+            const r = await upsertRetailerFromFlow({ fromNumber: fallbackFrom, fromName: fallbackName, flowData })
+            console.log('[Webhook] Retailer onboarded (retailer_form_copy):', r?.retailerId, '| status:', r?.status)
+          } catch (err) {
+            console.error('[Webhook] Fallback upsertRetailerFromFlow failed:', err.message, err.stack)
+          }
+        } else {
+          console.warn('[Webhook] retailer_form_copy in payload but no phone (from or flow data) — cannot create retailer')
+        }
+      }
+
       if (value.statuses?.length) {
         console.log(`[Webhook] ${value.statuses.length} status update(s) received`)
+      }
+    }
+  }
+
+  // ── Fallback: body is a flat response_json object (no Meta entry wrapper) ──
+  // Handles the case where the entire HTTP body IS the form data, e.g.:
+  // { "Business Name (GST)": "...", ..., "flow_token": "retailer_form_copy" }
+  if (!entries.length) {
+    const directFlowToken = getFlowTokenFromResponseJson(body)
+    if (directFlowToken === FLOW_TOKEN_RETAILER) {
+      const fromNumber = (getFlowValue(body, ['Mobile Number', 'Phone', 'phone_number', 'mobile', 'Mob', 'phone']) || '').replace(/\D/g, '')
+      const fromName = getFlowValue(body, ['Name', 'Contact Person', 'contactPerson']) || ''
+      if (fromNumber) {
+        try {
+          const retailer = await upsertRetailerFromFlow({ fromNumber, fromName, flowData: body })
+          console.log('[Webhook] Retailer onboarded (flat retailer_form_copy):', retailer?.retailerId, '| status:', retailer?.status)
+          await WebhookMessage.create({
+            companyId,
+            messageId: '',
+            from: fromNumber,
+            fromName,
+            messageType: 'interactive',
+            messageBody: `Retailer onboarding (${FLOW_TOKEN_RETAILER}) from ${fromName || fromNumber}`,
+            flowToken: FLOW_TOKEN_RETAILER,
+            flowResponseData: body,
+            timestamp: new Date(),
+            retailer: retailer?._id || null,
+            retailerMatched: true,
+            rawPayload: body,
+          }).catch((e) => {
+            if (e?.code !== 11000) console.error('[Webhook] WebhookMessage.create (flat payload) error:', e.message)
+          })
+        } catch (err) {
+          console.error('[Webhook] upsertRetailerFromFlow (flat payload) failed:', err.message, err.stack)
+        }
+      } else {
+        console.warn('[Webhook] retailer_form_copy flat payload but no phone — cannot create retailer')
       }
     }
   }

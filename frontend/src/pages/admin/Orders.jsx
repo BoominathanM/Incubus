@@ -113,6 +113,13 @@ const AdminOrders = () => {
       render: (text) => <strong style={{ whiteSpace: 'nowrap' }}>{text}</strong>,
     },
     {
+      title: 'Reference ID',
+      dataIndex: 'referenceId',
+      key: 'referenceId',
+      width: 140,
+      render: (text) => text ? <span style={{ whiteSpace: 'nowrap', fontSize: '12px' }}>{text}</span> : '-',
+    },
+    {
       title: 'Created At',
       dataIndex: 'createdAt',
       key: 'createdAt',
@@ -303,6 +310,7 @@ const AdminOrders = () => {
               if (!filteredOrders.length) { message.warning('No orders to export'); return }
               const rows = filteredOrders.map((o) => ({
                 'Order ID': o.orderId,
+                'Reference ID': o.referenceId || '',
                 'Created At': fmtDate(o.createdAt),
                 'Name': o.contactName || o.fromName || o.retailer?.businessName || '',
                 'Type': o.type === 'retailer' ? 'Retailer' : 'End User',

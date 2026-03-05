@@ -7,8 +7,8 @@ import {
   CloseCircleOutlined,
 } from '@ant-design/icons'
 import {
-  AreaChart,
-  Area,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -32,8 +32,6 @@ const CHART_COLORS = {
   pendingApprovals: '#faad14',
   rejectedTotal: '#ff4d4f',
 }
-
-const AREA_COLOR = '#15B9A4'
 
 const ExecutiveDashboard = () => {
   const [dateGroup, setDateGroup] = useState('day')
@@ -68,7 +66,10 @@ const ExecutiveDashboard = () => {
   const chartData = timeSeriesData.map((d) => ({
     ...d,
     label: d[xKey],
-    count: d.count,
+    count: Number(d.count) || 0,
+    requests: Number(d.requests ?? d.count) || 0,
+    onboarded: Number(d.onboarded) || 0,
+    rejected: Number(d.rejected) || 0,
   }))
 
   const pieData = [
@@ -78,7 +79,7 @@ const ExecutiveDashboard = () => {
     { name: 'Rejected', value: rejectedTotal, color: CHART_COLORS.rejectedTotal },
   ].filter((d) => d.value > 0)
 
-  const hasTimeSeriesData = chartData.length > 0 && chartData.some((d) => d.count > 0)
+  const hasTimeSeriesData = chartData.length > 0 && chartData.some((d) => (d.requests + d.onboarded + d.rejected) > 0)
 
   const rangeLabel = dateRange?.[0] && dateRange?.[1]
     ? `${dateRange[0].format('DD/MM/YYYY')} - ${dateRange[1].format('DD/MM/YYYY')}`
@@ -126,13 +127,15 @@ const ExecutiveDashboard = () => {
           >
             {hasTimeSeriesData ? (
               <ResponsiveContainer width="100%" height={320}>
-                <AreaChart data={chartData} margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
+                <LineChart data={chartData} margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey={xKey} tick={{ fontSize: 11 }} />
                   <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                  <Tooltip formatter={(value) => [value, 'Requests']} labelFormatter={(label) => `Period: ${label}`} />
-                  <Area type="monotone" dataKey="count" name="Requests" stroke={AREA_COLOR} fill={AREA_COLOR} fillOpacity={0.4} strokeWidth={2} />
-                </AreaChart>
+                  <Tooltip labelFormatter={(label) => `Period: ${label}`} />
+                  <Line type="monotone" dataKey="requests" name="Requests" stroke={CHART_COLORS.requestsRaised} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                  <Line type="monotone" dataKey="onboarded" name="Onboarded" stroke={CHART_COLORS.onboarded} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                  <Line type="monotone" dataKey="rejected" name="Rejected" stroke={CHART_COLORS.rejectedTotal} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                </LineChart>
               </ResponsiveContainer>
             ) : (
               <div style={{ height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>

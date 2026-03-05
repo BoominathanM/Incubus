@@ -2,6 +2,10 @@ const jwt = require('jsonwebtoken')
 
 const JWT_SECRET = process.env.JWT_SECRET || 'incubus-secret'
 
+function normalizeRole(role) {
+  return String(role || '').trim().toLowerCase().replace(/[\s_-]+/g, '')
+}
+
 /**
  * Verify JWT and attach req.user (id, email, role). Does not require a role.
  */
@@ -32,7 +36,8 @@ function requireRole(allowedRoles) {
     if (!req.user) {
       return res.status(401).json({ success: false, message: 'Authentication required' })
     }
-    if (set.has(req.user.role)) {
+    const normalizedAllowed = new Set([...set].map((r) => normalizeRole(r)))
+    if (normalizedAllowed.has(normalizeRole(req.user.role))) {
       return next()
     }
     return res.status(403).json({ success: false, message: 'Insufficient permissions' })

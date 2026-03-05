@@ -1,9 +1,43 @@
 const OrderManagement = require('../models/OrderManagement.model')
 const WebhookMessage = require('../models/WebhookMessage.model')
+const Product = require('../models/Product.model')
+const Retailer = require('../models/Retailer')
 const EventTemplateMapping = require('../models/EventTemplateMapping.model')
 const askevaService = require('../services/askeva.service')
+const { responseJsonHasRetailerFormCopy, responseJsonHasDeliveryFormCopy, getFlowTokenFromResponseJson, responseJsonStringHasRetailerFormCopy, mustBlockOrderCreation, FLOW_TOKEN_DELIVERY } = require('../services/retailerFromFlow')
 const mongoose = require('mongoose')
 const User = require('../models/User')
+
+function toDigits(str) {
+  return (str || '').replace(/\D/g, '')
+}
+
+async function findActiveRetailerByPhone(phone) {
+  const incoming = toDigits(phone)
+  if (!incoming) return null
+  const retailers = await Retailer.find(
+    { status: 'active' },
+    '_id retailerId businessName whatsappCountryCode whatsappNumber'
+  ).lean()
+  return retailers.find((r) => {
+    const full = toDigits(r.whatsappCountryCode) + toDigits(r.whatsappNumber)
+    return full === incoming || toDigits(r.whatsappNumber) === incoming
+  }) || null
+}
+
+/** Returns retailer if phone has pending_approval or rejected — blocks order creation until approved */
+async function findPendingRetailerByPhone(phone) {
+  const incoming = toDigits(phone)
+  if (!incoming) return null
+  const retailers = await Retailer.find(
+    { status: { $in: ['pending_approval', 'rejected'] } },
+    'retailerId businessName status whatsappCountryCode whatsappNumber'
+  ).lean()
+  return retailers.find((r) => {
+    const full = toDigits(r.whatsappCountryCode) + toDigits(r.whatsappNumber)
+    return full === incoming || toDigits(r.whatsappNumber) === incoming
+  }) || null
+}
 
 // Dedicated counter collection — avoids index conflicts with the legacy 'counters' collection
 const _orderCounterSchema = new mongoose.Schema(
@@ -14,6 +48,7 @@ const OrderCounter = mongoose.models.OrderCounter ||
   mongoose.model('OrderCounter', _orderCounterSchema)
 
 const COMPANY_ID = process.env.ASKEVA_COMPANY_ID || 'default'
+const RETAILER_POPULATE_FIELDS = 'retailerId businessName storeName contactPerson email whatsappNumber whatsappCountryCode altContactCountryCode altContactNumber gst pan street1 street2 city district state pincode branches status'
 
 // ─── Role permission maps ─────────────────────────────────────────────────────
 
@@ -113,52 +148,244 @@ async function findRecentOrderForFlowUpdate(companyId, from) {
     .lean()
 }
 
+/** Strict check: if response_json in rawPayload contains flow_token retailer_form_copy → never create order */
+function webhookHasRetailerFormCopy(wm) {
+  if (!wm) return false
+  if ((wm.flowToken || '').toString().trim().toLowerCase() === 'retailer_form_copy') return true
+  if (responseJsonStringHasRetailerFormCopy(wm?.rawPayload)) return true
+  if (mustBlockOrderCreation(wm)) return true
+  return false
+}
+
 /**
- * Core order-creation helper. Defined as a named function so it can be called
- * from within this same module (backfill) AND exported for external callers
- * (retailerWebhookController).
- * Idempotent: if webhookMessageId already linked to an order, returns that order.
+ * Core order-creation helper. Only creates orders for catalog order flow (order form + payment).
+ * If response_json contains flow_token retailer_form_copy → NEVER create order (create retailer instead).
  */
 async function createOrderFromWebhook({
   companyId, webhookMessageId, from, fromName,
   retailerMatched, retailer, items, catalogId, messageBody,
   extraFields = {},
+  rawPayload: rawPayloadArg,
 }) {
+  // VERIFY response_json flow_token BEFORE any order logic: never create order for retailer_form_copy
+  if (webhookMessageId) {
+    const wm = await WebhookMessage.findById(webhookMessageId).select('rawPayload flowToken messageType').lean()
+    if (webhookHasRetailerFormCopy(wm)) {
+      console.log('[OrderController] BLOCK order: webhook message has flow_token retailer_form_copy (verify before create)')
+      return null
+    }
+    if (wm?.rawPayload && responseJsonStringHasRetailerFormCopy(wm.rawPayload)) {
+      console.log('[OrderController] BLOCK order: webhook message response_json has flow_token retailer_form_copy (verify before create)')
+      return null
+    }
+  }
+  if (rawPayloadArg && responseJsonStringHasRetailerFormCopy(rawPayloadArg)) {
+    console.log('[OrderController] BLOCK order: rawPayload response_json has flow_token retailer_form_copy (verify before create)')
+    return null
+  }
+
+  // GUARD 1: Never create order with no catalog items (prevents retailer-form or flow-order from creating orders)
+  if (!Array.isArray(items) || items.length === 0) {
+    console.log('[OrderController] Skipping order: no catalog items', { webhookMessageId: webhookMessageId || null, from })
+    return null
+  }
+
+  const enrichedItems = await enrichItemsWithProductDetails(companyId, catalogId || '', items)
+  const amount = (enrichedItems || []).reduce((sum, it) => sum + (Number(it.itemPrice) || 0) * (Number(it.quantity) || 1), 0)
+
+  // GUARD 2: If rawPayload passed (from webhook), never create order for retailer form
+  if (rawPayloadArg && responseJsonHasRetailerFormCopy(rawPayloadArg)) {
+    console.log('[OrderController] Skipping order: rawPayload has flow_token retailer_form_copy')
+    return null
+  }
+  // GUARD 2b: For flow payloads, only allow order when response_json has "flow_token":"delivery_address_copy"
+  if (rawPayloadArg) {
+    const token = getFlowTokenFromResponseJson(rawPayloadArg)
+    if (token && token !== FLOW_TOKEN_DELIVERY && token !== 'delivery_address_copy') {
+      console.log('[OrderController] Skipping order: rawPayload flow_token is not delivery_address_copy', { token })
+      return null
+    }
+  }
+
+  // GUARD 3: If webhookMessageId links to a message, verify it is NOT retailer_form_copy (by rawPayload and stored flowToken)
+  if (webhookMessageId) {
+    const wm = await WebhookMessage.findById(webhookMessageId).select('flowToken rawPayload messageBody messageType').lean()
+    const storedToken = (wm?.flowToken || '').toString().trim().toLowerCase()
+    if (storedToken === 'retailer_form_copy') {
+      console.log('[OrderController] Skipping order: webhook message flowToken is retailer_form_copy')
+      return null
+    }
+    if (webhookHasRetailerFormCopy(wm)) {
+      console.log('[OrderController] Skipping order: response_json contains flow_token retailer_form_copy (create retailer instead)')
+      return null
+    }
+    if (wm && (wm.messageType || '').toLowerCase() === 'interactive') {
+      const mb = (wm.messageBody || '').toLowerCase()
+      if (mb.includes('flow order') || mb.includes('retailer onboarding') || mb.includes('order flow form')) {
+        console.log('[OrderController] Skipping order: interactive flow/onboarding message')
+        return null
+      }
+    }
+  }
+
   // Idempotency: same webhook message must not create duplicate orders
   if (webhookMessageId) {
     const existing = await OrderManagement.findOne({ webhookMessageId }).lean()
     if (existing) return existing
   }
 
+  // Block: sender has retailer in pending_approval — no orders until approved
+  const pendingRetailer = await findPendingRetailerByPhone(from)
+  if (pendingRetailer) {
+    console.log(`[OrderController] Skipping order: ${from} has retailer ${pendingRetailer.retailerId} in ${pendingRetailer.status} — awaiting approval`)
+    return null
+  }
+
+  // NUCLEAR: Final block before OrderManagement.create — NEVER create when response_json has flow_token retailer_form_copy
+  if (webhookMessageId) {
+    const wm = await WebhookMessage.findById(webhookMessageId).select('rawPayload flowToken').lean()
+    if (mustBlockOrderCreation(wm)) {
+      console.log('[OrderController] NUCLEAR BLOCK: webhook', webhookMessageId, 'has flow_token retailer_form_copy — order NOT created')
+      return null
+    }
+  }
+  if (rawPayloadArg && mustBlockOrderCreation({ rawPayload: rawPayloadArg })) {
+    console.log('[OrderController] NUCLEAR BLOCK: rawPayload has flow_token retailer_form_copy — order NOT created')
+    return null
+  }
+
   const orderId = await generateOrderId()
-  const order = await OrderManagement.create({
+  const messageBodyResolved = messageBody || enrichedItems.map((i) => (i.productName ? `${i.productName} x${i.quantity}` : `${i.productRetailerId} x${i.quantity}`)).join(', ')
+  const orderPayload = {
     orderId,
     companyId,
     webhookMessageId: webhookMessageId || null,
+    referenceId: extraFields.referenceId != null ? String(extraFields.referenceId).trim() : '',
     type: retailerMatched ? 'retailer' : 'enduser',
     from: from || '',
     fromName: fromName || '',
     retailer: retailer?._id || null,
-    items: items || [],
+    items: enrichedItems,
     catalogId: catalogId || '',
-    messageBody: messageBody || '',
+    messageBody: messageBodyResolved || '',
     contactName: fromName || '',
     contactNumber: from || '',
-    ...extraFields,
+    amount: amount || extraFields.amount || 0,
     paymentStatus: extraFields.paymentStatus || 'Pending',
     billingStatus: 'Pending',
     warehouseStatus: 'Preparing',
     dispatchStatus: 'Pending',
     deliveryStatus: 'Pending',
     finalStatus: 'Open',
-  })
+  }
+  const order = await OrderManagement.create({ ...orderPayload, ...extraFields })
   return order
+}
+
+const ORDER_CORRELATION_CUTOFF_MS = 30 * 60 * 1000
+
+/**
+ * Update the most recent pending order (by from) with delivery/contact and reference_id.
+ * Used when delivery_address_copy webhook is received.
+ */
+async function updatePendingOrderDelivery(companyId, from, extraFields) {
+  const normalizedFrom = String(from || '').replace(/\D/g, '')
+  const cutoff = new Date(Date.now() - ORDER_CORRELATION_CUTOFF_MS)
+  const order = await OrderManagement.findOne({
+    companyId,
+    from: normalizedFrom,
+    paymentStatus: 'Pending',
+    createdAt: { $gte: cutoff },
+  })
+    .sort({ createdAt: -1 })
+    .lean()
+  if (!order) return null
+  const update = {}
+  if (extraFields.referenceId != null) update.referenceId = String(extraFields.referenceId).trim()
+  if (extraFields.contactName != null) update.contactName = extraFields.contactName
+  if (extraFields.contactNumber != null) update.contactNumber = extraFields.contactNumber
+  if (extraFields.deliveryAddress != null) update.deliveryAddress = extraFields.deliveryAddress
+  if (extraFields.deliveryStoreName != null) update.deliveryStoreName = extraFields.deliveryStoreName
+  if (extraFields.deliveryCustomerName != null) update.deliveryCustomerName = extraFields.deliveryCustomerName
+  if (extraFields.deliveryStreetName != null) update.deliveryStreetName = extraFields.deliveryStreetName
+  if (extraFields.deliveryLandmark != null) update.deliveryLandmark = extraFields.deliveryLandmark
+  if (extraFields.deliveryCity != null) update.deliveryCity = extraFields.deliveryCity
+  if (extraFields.deliveryState != null) update.deliveryState = extraFields.deliveryState
+  if (extraFields.deliveryPincode != null) update.deliveryPincode = extraFields.deliveryPincode
+  if (extraFields.deliveryMobileNumber != null) update.deliveryMobileNumber = extraFields.deliveryMobileNumber
+  if (extraFields.deliveryAlternateNumber != null) update.deliveryAlternateNumber = extraFields.deliveryAlternateNumber
+  if (Object.keys(update).length === 0) return order
+  await OrderManagement.updateOne({ orderId: order.orderId }, { $set: update })
+  return OrderManagement.findOne({ orderId: order.orderId }).lean()
+}
+
+/**
+ * Update pending order with payment fields. Match by referenceId (from webhook) if provided, else by from + Pending.
+ */
+async function updatePendingOrderPayment(companyId, from, extraFields) {
+  let order = null
+  if (extraFields.referenceId && String(extraFields.referenceId).trim()) {
+    order = await OrderManagement.findOne({
+      companyId,
+      referenceId: String(extraFields.referenceId).trim(),
+      paymentStatus: 'Pending',
+    }).sort({ createdAt: -1 }).lean()
+  }
+  if (!order) {
+    const normalizedFrom = String(from || '').replace(/\D/g, '')
+    const cutoff = new Date(Date.now() - ORDER_CORRELATION_CUTOFF_MS)
+    order = await OrderManagement.findOne({
+      companyId,
+      from: normalizedFrom,
+      paymentStatus: 'Pending',
+      createdAt: { $gte: cutoff },
+    })
+      .sort({ createdAt: -1 })
+      .lean()
+  }
+  if (!order) return null
+  const update = {}
+  if (extraFields.paymentStatus != null) update.paymentStatus = extraFields.paymentStatus
+  if (extraFields.paymentMode != null) update.paymentMode = extraFields.paymentMode
+  if (extraFields.transactionId != null) update.transactionId = extraFields.transactionId
+  if (extraFields.paymentDate != null) update.paymentDate = extraFields.paymentDate
+  if (extraFields.amount != null) update.amount = extraFields.amount
+  if (Object.keys(update).length === 0) return order
+  await OrderManagement.updateOne({ orderId: order.orderId }, { $set: update })
+  return OrderManagement.findOne({ orderId: order.orderId }).lean()
+}
+
+/**
+ * Update the most recent pending order (by from) with payment fields.
+ * When payment is received later, order is updated by matching from + paymentStatus Pending.
+ */
+async function updatePendingOrderPayment(companyId, from, extraFields) {
+  const normalizedFrom = String(from || '').replace(/\D/g, '')
+  const cutoff = new Date(Date.now() - ORDER_CORRELATION_CUTOFF_MS)
+  const order = await OrderManagement.findOne({
+    companyId,
+    from: normalizedFrom,
+    paymentStatus: 'Pending',
+    createdAt: { $gte: cutoff },
+  })
+    .sort({ createdAt: -1 })
+    .lean()
+  if (!order) return null
+  const update = {}
+  if (extraFields.paymentStatus != null) update.paymentStatus = extraFields.paymentStatus
+  if (extraFields.paymentMode != null) update.paymentMode = extraFields.paymentMode
+  if (extraFields.transactionId != null) update.transactionId = extraFields.transactionId
+  if (extraFields.paymentDate != null) update.paymentDate = extraFields.paymentDate
+  if (extraFields.amount != null) update.amount = extraFields.amount
+  if (Object.keys(update).length === 0) return order
+  await OrderManagement.updateOne({ orderId: order.orderId }, { $set: update })
+  return OrderManagement.findOne({ orderId: order.orderId }).lean()
 }
 
 /**
  * Handle webhook order event: create ONE order per user flow.
  * - order (catalog): CREATE new order (canonical order placement)
- * - interactive (nfm_reply): UPDATE existing order with flow data, or CREATE if none found
+ * - interactive (nfm_reply): UPDATE existing order with flow data; NEVER create new order
  * - payment: UPDATE existing order with payment info, NEVER create
  */
 async function handleWebhookOrderEvent({
@@ -173,8 +400,60 @@ async function handleWebhookOrderEvent({
   catalogId,
   messageBody,
   extraFields = {},
+  flowToken = '',
+  rawPayload: rawPayloadArg,
 }) {
   const normalizedFrom = String(from || '').replace(/\D/g, '')
+  const ft = String(flowToken || '').trim().toLowerCase()
+  if (ft === 'retailer_form_copy') {
+    console.log('[OrderController] Skipping order — flow_token is retailer_form_copy')
+    return null
+  }
+  // VERIFY response_json before any order path: never create when response_json has "flow_token":"retailer_form_copy"
+  if (webhookMessageId) {
+    const wm = await WebhookMessage.findById(webhookMessageId).select('rawPayload').lean()
+    if (wm?.rawPayload && responseJsonStringHasRetailerFormCopy(wm.rawPayload)) {
+      console.log('[OrderController] BLOCK order: webhook message response_json has flow_token retailer_form_copy (verify before create)')
+      return null
+    }
+  }
+  if (rawPayloadArg && responseJsonStringHasRetailerFormCopy(rawPayloadArg)) {
+    console.log('[OrderController] BLOCK order: rawPayload response_json has flow_token retailer_form_copy')
+    return null
+  }
+  // FINAL GUARD: If rawPayload passed, check first — never create order for retailer form
+  if (rawPayloadArg && responseJsonHasRetailerFormCopy(rawPayloadArg)) {
+    console.log('[OrderController] Skipping order — rawPayload has flow_token retailer_form_copy')
+    return null
+  }
+  // STRICT: Verify linked webhook message does NOT have retailer form
+  if (webhookMessageId) {
+    const wm = await WebhookMessage.findById(webhookMessageId).select('flowToken rawPayload messageType').lean()
+    if (webhookHasRetailerFormCopy(wm)) {
+      console.log('[OrderController] Skipping order — webhook message has flow_token retailer_form_copy')
+      return null
+    }
+    // For interactive messages, only allow order path when flow_token is delivery_address_copy
+    if ((wm?.messageType || '').toLowerCase() === 'interactive') {
+      const token = (wm?.flowToken || getFlowTokenFromResponseJson(wm?.rawPayload) || '').toString().trim().toLowerCase()
+      // If token is retailer_form_copy → always block
+      if (token === 'retailer_form_copy') {
+        console.log('[OrderController] Skipping order — interactive webhook flow_token is retailer_form_copy')
+        return null
+      }
+      // If token is non-empty and not a delivery token → block
+      if (token && token !== FLOW_TOKEN_DELIVERY && token !== 'delivery_address_copy') {
+        console.log('[OrderController] Skipping order — interactive webhook flow_token is not delivery_address_copy', { token })
+        return null
+      }
+      // If token is EMPTY — rawPayload may not have been checked yet (flowToken stored as '' at create time)
+      // Do a direct rawPayload check as final safety net
+      if (!token && wm?.rawPayload && responseJsonHasRetailerFormCopy(wm.rawPayload)) {
+        console.log('[OrderController] Skipping order — interactive webhook rawPayload contains retailer_form_copy (flowToken was empty)')
+        return null
+      }
+    }
+  }
 
   // PAYMENT: Always update existing order, never create
   if (msgType === 'payment') {
@@ -197,7 +476,7 @@ async function handleWebhookOrderEvent({
     return null
   }
 
-  // INTERACTIVE (flow form): Update existing order or create if none
+  // INTERACTIVE: NEVER create orders — only update existing. Retailer form (flow_token retailer_form_copy) must not create/update orders.
   if (msgType === 'interactive') {
     const existing = await findRecentOrderForFlowUpdate(companyId, normalizedFrom)
     if (existing) {
@@ -210,22 +489,17 @@ async function handleWebhookOrderEvent({
       }
       return OrderManagement.findOne({ orderId: existing.orderId }).lean()
     }
-    // No existing order (flow came first) — create
-    return createOrderFromWebhook({
-      companyId,
-      webhookMessageId,
-      from,
-      fromName,
-      retailerMatched,
-      retailer,
-      items,
-      catalogId,
-      messageBody,
-      extraFields,
-    })
+    // No existing order for this flow; do not create from interactive payload
+    console.log('[OrderController] Interactive flow received without existing order; skipping order creation for', normalizedFrom)
+    return null
   }
 
   // ORDER (catalog): Create new order — or update if flow created one first
+  // Never create with empty items (prevents flow/retailer form from creating orders)
+  if (!Array.isArray(items) || items.length === 0) {
+    console.log('[OrderController] Skipping order creation: no catalog items')
+    return null
+  }
   const existing = await findRecentOrderForFlowUpdate(companyId, normalizedFrom)
   if (existing && (existing.items?.length || 0) === 0) {
     // Flow created order first; update with catalog items
@@ -253,6 +527,7 @@ async function handleWebhookOrderEvent({
       catalogId,
       messageBody,
       extraFields,
+      rawPayload: rawPayloadArg,
     })
     console.log(`[OrderController] Created order ${order?.orderId} for ${normalizedFrom}`)
     return order
@@ -262,9 +537,49 @@ async function handleWebhookOrderEvent({
   }
 }
 
+/**
+ * Enrich order items with productName and itemPrice from Product catalog (by productRetailerId).
+ * Preserves item_price from webhook (product_items[].item_price) when already set and > 0.
+ */
+async function enrichItemsWithProductDetails(companyId, catalogId, items) {
+  if (!items?.length) return items
+  const enriched = []
+  for (const it of items) {
+    let productName = it.productName || ''
+    const webhookPrice = Number(it.itemPrice) || 0
+    let itemPrice = webhookPrice
+    if (!productName || (!itemPrice && itemPrice !== 0)) {
+      try {
+        const product = await Product.findOne({
+          companyId,
+          $or: [
+            { productId: it.productRetailerId },
+            { sku: it.productRetailerId },
+          ],
+        })
+          .lean()
+        if (product) {
+          if (!productName) productName = product.name || ''
+          if (itemPrice <= 0) itemPrice = Number(product.price) || 0
+        }
+      } catch (_) { /* ignore */ }
+    }
+    if (itemPrice <= 0 && webhookPrice > 0) itemPrice = webhookPrice
+    enriched.push({
+      productRetailerId: it.productRetailerId || '',
+      quantity: Number(it.quantity) || 1,
+      productName: productName || it.productRetailerId || '',
+      itemPrice,
+    })
+  }
+  return enriched
+}
+
 // Export for retailerWebhookController
 exports.createOrderFromWebhook = createOrderFromWebhook
 exports.handleWebhookOrderEvent = handleWebhookOrderEvent
+exports.updatePendingOrderDelivery = updatePendingOrderDelivery
+exports.updatePendingOrderPayment = updatePendingOrderPayment
 
 // ─── Route handlers ───────────────────────────────────────────────────────────
 
@@ -276,7 +591,7 @@ exports.handleWebhookOrderEvent = handleWebhookOrderEvent
 exports.backfillOrdersFromWebhooks = async (req, res) => {
   try {
     const messages = await WebhookMessage.find({ messageType: 'order' })
-      .populate('retailer', 'retailerId businessName storeName contactPerson email whatsappNumber whatsappCountryCode city state status')
+      .populate('retailer', RETAILER_POPULATE_FIELDS)
       .lean()
 
     if (messages.length === 0) {
@@ -341,6 +656,16 @@ exports.backfillOrdersFromWebhooks = async (req, res) => {
         }
 
         const finalItems = rawItems.length > 0 ? rawItems : bodyItems
+        if (finalItems.length === 0) {
+          skipped++
+          continue
+        }
+
+        // STRICT: Never create from retailer form — response_json contains flow_token retailer_form_copy
+        if (mustBlockOrderCreation(msg) || (msg.flowToken || '').toString().toLowerCase() === 'retailer_form_copy') {
+          skipped++
+          continue
+        }
 
         // createOrderFromWebhook is a local function — always in scope
         await createOrderFromWebhook({
@@ -420,10 +745,21 @@ exports.resetOrderCounter = async (req, res) => {
 /**
  * POST /api/orders
  * Create a new order manually (admin/superadmin only).
+ * Rejects if webhookMessageId points to a retailer-form message (flow_token retailer_form_copy).
  */
 exports.createOrder = async (req, res) => {
   try {
     const companyId = req.query.companyId || COMPANY_ID
+    const webhookMessageId = req.body?.webhookMessageId
+    if (webhookMessageId) {
+      const wm = await WebhookMessage.findById(webhookMessageId).select('rawPayload flowToken').lean()
+      if (wm && (mustBlockOrderCreation(wm) || webhookHasRetailerFormCopy(wm))) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot create order: webhook message is retailer onboarding (flow_token retailer_form_copy). Create retailer instead.',
+        })
+      }
+    }
     const orderId = await generateOrderId()
     const order = await OrderManagement.create({
       ...req.body,
@@ -483,7 +819,7 @@ exports.getOrders = async (req, res) => {
 
     const [orders, total] = await Promise.all([
       OrderManagement.find(filter)
-        .populate('retailer', 'retailerId businessName storeName contactPerson email whatsappNumber whatsappCountryCode city state')
+        .populate('retailer', RETAILER_POPULATE_FIELDS)
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -510,7 +846,7 @@ exports.getOrders = async (req, res) => {
 exports.getOrderById = async (req, res) => {
   try {
     const order = await OrderManagement.findOne({ orderId: req.params.orderId })
-      .populate('retailer', 'retailerId businessName storeName contactPerson email whatsappNumber whatsappCountryCode city state')
+      .populate('retailer', RETAILER_POPULATE_FIELDS)
       .lean()
 
     if (!order) {
@@ -585,6 +921,57 @@ exports.getOrderStats = async (req, res) => {
 }
 
 // ─── Order notification helper ─────────────────────────────────────────────────
+
+/**
+ * GET /api/orders/stats/by-date
+ * Returns per-day (or per-month) order counts: total, pending, completed.
+ */
+exports.getOrderStatsByDate = async (req, res) => {
+  try {
+    const group = (req.query.group || 'day').toLowerCase()
+    const byMonth = group === 'month'
+
+    const filter = {}
+    if (req.query.startDate || req.query.endDate) {
+      filter.createdAt = {}
+      if (req.query.startDate) filter.createdAt.$gte = new Date(req.query.startDate)
+      if (req.query.endDate) filter.createdAt.$lte = new Date(req.query.endDate)
+    }
+
+    const dateExpr = byMonth
+      ? { $dateToString: { format: '%Y-%m', date: '$createdAt' } }
+      : { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }
+
+    const rows = await OrderManagement.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: dateExpr,
+          total: { $sum: 1 },
+          pending: {
+            $sum: { $cond: [{ $eq: ['$paymentStatus', 'Pending'] }, 1, 0] },
+          },
+          completed: {
+            $sum: { $cond: [{ $eq: ['$finalStatus', 'Closed'] }, 1, 0] },
+          },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ])
+
+    return res.json({
+      success: true,
+      data: rows.map((r) => ({
+        date: r._id,
+        total: r.total || 0,
+        pending: r.pending || 0,
+        completed: r.completed || 0,
+      })),
+    })
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message || 'Failed to get order stats by date' })
+  }
+}
 
 /**
  * Resolve a hrmsField string to its value from the order document.
@@ -732,7 +1119,7 @@ exports.updateOrder = async (req, res) => {
       { orderId: req.params.orderId },
       { $set: updateData },
       { new: true }
-    ).populate('retailer', 'retailerId businessName storeName contactPerson email whatsappNumber whatsappCountryCode city state').lean()
+    ).populate('retailer', RETAILER_POPULATE_FIELDS).lean()
 
     // Fire-and-forget WhatsApp notifications (non-blocking)
     if (updateData.notifyBillingVerification === true)
