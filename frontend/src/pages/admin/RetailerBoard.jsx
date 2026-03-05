@@ -90,6 +90,10 @@ const RetailerBoard = () => {
   const [triggerSample, { isLoading: sampleLoading }] = useLazyDownloadImportSampleQuery()
   const [importRetailers, { isLoading: importMutationLoading }] = useImportRetailersMutation()
   const handleImportSuccess = useCallback(({ imported }) => { if (imported > 0) setActiveTab('requests') }, [])
+  const openViewRetailer = useCallback((record) => {
+    setViewRetailer(record)
+    setViewModalVisible(true)
+  }, [])
 
   const requestColumns = [
     { title: 'Retailer ID', dataIndex: 'retailerId', key: 'retailerId', render: (v) => v || '-' },
@@ -129,7 +133,7 @@ const RetailerBoard = () => {
       width: 72,
       render: (_, record) => {
         const menuItems = [
-          { key: 'view', icon: <EyeOutlined />, label: 'View', onClick: () => { setViewRetailer(record); setViewModalVisible(true) } },
+          { key: 'view', icon: <EyeOutlined />, label: 'View', onClick: () => openViewRetailer(record) },
           { key: 'edit', icon: <EditOutlined />, label: 'Edit', onClick: () => { setSelectedRetailer(record); form.setFieldsValue(retailerToForm(record)); setEditModalVisible(true) } },
           ...(record.status === 'pending_approval'
             ? [
@@ -139,9 +143,11 @@ const RetailerBoard = () => {
             : []),
         ]
         return (
-          <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight">
-            <Button type="text" icon={<MoreOutlined />} />
-          </Dropdown>
+          <span onClick={(e) => e.stopPropagation()}>
+            <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight">
+              <Button type="text" icon={<MoreOutlined />} />
+            </Dropdown>
+          </span>
         )
       },
     },
@@ -165,7 +171,7 @@ const RetailerBoard = () => {
       width: 72,
       render: (_, record) => {
         const menuItems = [
-          { key: 'view', icon: <EyeOutlined />, label: 'View', onClick: () => { setViewRetailer(record); setViewModalVisible(true) } },
+          { key: 'view', icon: <EyeOutlined />, label: 'View', onClick: () => openViewRetailer(record) },
           { key: 'edit', icon: <EditOutlined />, label: 'Edit', onClick: () => { setSelectedRetailer(record); form.setFieldsValue(retailerToForm(record)); setEditModalVisible(true) } },
           record.status === 'active'
             ? { key: 'disable', icon: <StopOutlined />, label: 'Disable', danger: true, onClick: () => handleDisable(record) }
@@ -173,9 +179,11 @@ const RetailerBoard = () => {
           { key: 'remove', icon: <DeleteOutlined />, label: 'Remove', danger: true, onClick: () => handleRemove(record) },
         ]
         return (
-          <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight">
-            <Button type="text" icon={<MoreOutlined />} />
-          </Dropdown>
+          <span onClick={(e) => e.stopPropagation()}>
+            <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight">
+              <Button type="text" icon={<MoreOutlined />} />
+            </Dropdown>
+          </span>
         )
       },
     },
@@ -198,13 +206,15 @@ const RetailerBoard = () => {
       width: 72,
       render: (_, record) => {
         const menuItems = [
-          { key: 'view', icon: <EyeOutlined />, label: 'View', onClick: () => { setViewRetailer(record); setViewModalVisible(true) } },
+          { key: 'view', icon: <EyeOutlined />, label: 'View', onClick: () => openViewRetailer(record) },
           { key: 'edit', icon: <EditOutlined />, label: 'Edit', onClick: () => { setSelectedRetailer(record); form.setFieldsValue(retailerToForm(record)); setEditModalVisible(true) } },
         ]
         return (
-          <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight">
-            <Button type="text" icon={<MoreOutlined />} />
-          </Dropdown>
+          <span onClick={(e) => e.stopPropagation()}>
+            <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight">
+              <Button type="text" icon={<MoreOutlined />} />
+            </Dropdown>
+          </span>
         )
       },
     },
@@ -391,6 +401,10 @@ const RetailerBoard = () => {
           dataSource={retailers}
           loading={listLoading}
           pagination={{ pageSize: 10 }}
+          onRow={(record) => ({
+            onClick: () => openViewRetailer(record),
+            style: { cursor: 'pointer' },
+          })}
         />
       ),
     },
@@ -404,6 +418,10 @@ const RetailerBoard = () => {
           dataSource={retailers}
           loading={listLoading}
           pagination={{ pageSize: 10 }}
+          onRow={(record) => ({
+            onClick: () => openViewRetailer(record),
+            style: { cursor: 'pointer' },
+          })}
         />
       ),
     },
@@ -418,6 +436,10 @@ const RetailerBoard = () => {
           loading={listLoading}
           pagination={{ pageSize: 10 }}
           scroll={{ x: 'max-content' }}
+          onRow={(record) => ({
+            onClick: () => openViewRetailer(record),
+            style: { cursor: 'pointer' },
+          })}
         />
       ),
     },

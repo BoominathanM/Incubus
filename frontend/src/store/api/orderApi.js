@@ -61,6 +61,15 @@ export const orderApi = baseApi.injectEndpoints({
       providesTags: ['Orders'],
       keepUnusedDataFor: 60,
     }),
+
+    getOrderStatsByDate: builder.query({
+      query: (params = {}) => ({
+        url: '/api/orders/stats/by-date',
+        params,
+      }),
+      providesTags: ['Orders'],
+      keepUnusedDataFor: 60,
+    }),
   }),
 })
 
@@ -72,4 +81,5 @@ export const {
   useBackfillOrdersMutation,
   useResetOrderCounterMutation,
   useGetOrderStatsQuery,
+  useGetOrderStatsByDateQuery,
 } = orderApi

@@ -406,6 +406,21 @@ const OrderDetail = ({ basePath = '/admin' }) => {
       : '-'
   const displayEmail = orderData.contactEmail || orderData.retailer?.email || '-'
   const displayAddress = orderData.deliveryAddress || '-'
+  const retailerData = orderData.retailer || {}
+  const retailerPrimaryPhone = retailerData.whatsappNumber
+    ? `${retailerData.whatsappCountryCode || ''}${retailerData.whatsappNumber}`
+    : '-'
+  const retailerAltPhone = retailerData.altContactNumber
+    ? `${retailerData.altContactCountryCode || ''}${retailerData.altContactNumber}`
+    : '-'
+  const retailerAddress = [
+    retailerData.street1,
+    retailerData.street2,
+    retailerData.city,
+    retailerData.district,
+    retailerData.state,
+    retailerData.pincode,
+  ].filter(Boolean).join(', ') || displayAddress
 
   const deliveryTypeLabel =
     orderData.deliveryType === 'warehouse_agent'
@@ -505,14 +520,21 @@ const OrderDetail = ({ basePath = '/admin' }) => {
             dataSource={[{
               key: '1',
               'Order ID': <Text strong>{orderData.orderId}</Text>,
+              'Reference ID': orderData.referenceId ? <Text copyable>{orderData.referenceId}</Text> : '-',
               'Order Date': fmt(orderData.createdAt),
-              'Items': orderData.messageBody || orderData.items?.map((i) => `${i.productRetailerId} x${i.quantity}`).join(', ') || '-',
+              'Items': orderData.items?.map((i) => {
+                const name = i.productName || i.productRetailerId || 'Product'
+                const qty = i.quantity || 1
+                const price = i.itemPrice != null ? i.itemPrice * qty : null
+                return price != null ? `${name} x${qty} (₹${price.toLocaleString()})` : `${name} x${qty}`
+              }).join(', ') || orderData.messageBody || '-',
               'Amount': <Text strong style={{ color: '#15B9A4', fontSize: '16px' }}>₹{(orderData.amount || 0).toLocaleString()}</Text>,
               'Type': <Tag color={orderData.type === 'retailer' ? 'blue' : 'default'}>{orderData.type === 'retailer' ? 'Retailer' : 'End User'}</Tag>,
               'Final Status': <Tag color={orderData.finalStatus === 'Closed' ? '#15B9A4' : '#6754A3'}>{orderData.finalStatus || 'Open'}</Tag>,
             }]}
             columns={[
               { title: 'Order ID', dataIndex: 'Order ID', key: 'orderId' },
+              { title: 'Reference ID', dataIndex: 'Reference ID', key: 'referenceId' },
               { title: 'Order Date', dataIndex: 'Order Date', key: 'orderDate' },
               { title: 'Items', dataIndex: 'Items', key: 'items' },
               { title: 'Amount', dataIndex: 'Amount', key: 'amount' },
@@ -530,7 +552,7 @@ const OrderDetail = ({ basePath = '/admin' }) => {
         <div style={{ display: 'flex', gap: 24, marginBottom: 24, flexWrap: 'wrap' }}>
           <Card
             title="Retailer Information"
-            style={{ flex: 1, minWidth: 280 }}
+            style={{ flex: '0 0 calc(50% - 12px)', minWidth: 280, boxSizing: 'border-box' }}
             className="order-detail-card"
             extra={renderCardExtra('retailer')}
           >
@@ -538,41 +560,71 @@ const OrderDetail = ({ basePath = '/admin' }) => {
               <Table
                 dataSource={[{
                   key: '1',
-                  'User Name': displayName,
-                  'Contact Number': displayPhone,
-                  'Email': displayEmail,
-                  'Delivery Address': displayAddress,
+                  'Retailer ID': retailerData.retailerId || '-',
+                  'Business Name': retailerData.businessName || displayName,
+                  'Store Name': retailerData.storeName || (orderData.deliveryStoreName || '-'),
+                  'Contact Person': retailerData.contactPerson || displayName,
+                  'WhatsApp Number': retailerPrimaryPhone,
+                  'Alternate Number': retailerAltPhone,
+                  'Email': retailerData.email || displayEmail,
+                  'GST': retailerData.gst || '-',
+                  'PAN': retailerData.pan || '-',
+                  'Address': retailerAddress,
+                  'Branches': retailerData.branches || '-',
+                  'Status': (
+                    <Tag color={retailerData.status === 'active' ? '#15B9A4' : retailerData.status === 'pending_approval' ? '#faad14' : '#6754A3'}>
+                      {retailerData.status || '-'}
+                    </Tag>
+                  ),
                 }]}
                 columns={[
-                  { title: 'User Name', dataIndex: 'User Name', key: 'name' },
-                  { title: 'Contact Number', dataIndex: 'Contact Number', key: 'contact' },
+                  { title: 'Retailer ID', dataIndex: 'Retailer ID', key: 'retailerId' },
+                  { title: 'Business Name', dataIndex: 'Business Name', key: 'businessName' },
+                  { title: 'Store Name', dataIndex: 'Store Name', key: 'storeName' },
+                  { title: 'Contact Person', dataIndex: 'Contact Person', key: 'contactPerson' },
+                  { title: 'WhatsApp Number', dataIndex: 'WhatsApp Number', key: 'whatsappNumber' },
+                  { title: 'Alternate Number', dataIndex: 'Alternate Number', key: 'altNumber' },
                   { title: 'Email', dataIndex: 'Email', key: 'email' },
-                  { title: 'Delivery Address', dataIndex: 'Delivery Address', key: 'address' },
+                  { title: 'GST', dataIndex: 'GST', key: 'gst' },
+                  { title: 'PAN', dataIndex: 'PAN', key: 'pan' },
+                  { title: 'Address', dataIndex: 'Address', key: 'address' },
+                  { title: 'Branches', dataIndex: 'Branches', key: 'branches' },
+                  { title: 'Status', dataIndex: 'Status', key: 'status' },
                 ]}
                 pagination={false}
                 bordered
               />
             </div>
           </Card>
-          <Card title="Delivery Information" style={{ flex: 1, minWidth: 280 }} className="order-detail-card">
+          <Card title="Retailer / Delivery Information" style={{ flex: '0 0 calc(50% - 12px)', minWidth: 280, boxSizing: 'border-box' }} className="order-detail-card" extra={renderCardExtra('retailer')}>
             <div className="order-detail-table-wrap">
               <Table
                 dataSource={[{
                   key: '1',
+                  'Store Name': orderData.deliveryStoreName || retailerData.storeName || '-',
+                  'Customer Name': orderData.deliveryCustomerName || displayName,
+                  'Street Name': orderData.deliveryStreetName || '-',
+                  'Landmark': orderData.deliveryLandmark || '-',
+                  'City': orderData.deliveryCity || '-',
+                  'State': orderData.deliveryState || '-',
+                  'PIN Code': orderData.deliveryPincode || '-',
+                  'Mobile Number': orderData.deliveryMobileNumber || displayPhone,
+                  'Alternate Number': orderData.deliveryAlternateNumber || retailerAltPhone || '-',
                   'Delivery Address': displayAddress,
-                  'Courier': orderData.courier || '-',
-                  'Tracking URL': orderData.trackingUrl
-                    ? <a href={orderData.trackingUrl} target="_blank" rel="noopener noreferrer">Track</a>
-                    : '-',
                   'Delivery Status': <Tag color={orderData.deliveryStatus === 'Delivered' ? '#15B9A4' : orderData.deliveryStatus === 'In Transit' ? '#6754A3' : '#999'}>{orderData.deliveryStatus || 'Pending'}</Tag>,
-                  'Delivery Time': fmt(orderData.deliveryTime),
                 }]}
                 columns={[
+                  { title: 'Store Name', dataIndex: 'Store Name', key: 'storeName' },
+                  { title: 'Customer Name', dataIndex: 'Customer Name', key: 'customerName' },
+                  { title: 'Street Name', dataIndex: 'Street Name', key: 'streetName' },
+                  { title: 'Landmark', dataIndex: 'Landmark', key: 'landmark' },
+                  { title: 'City', dataIndex: 'City', key: 'city' },
+                  { title: 'State', dataIndex: 'State', key: 'state' },
+                  { title: 'PIN Code', dataIndex: 'PIN Code', key: 'pincode' },
+                  { title: 'Mobile Number', dataIndex: 'Mobile Number', key: 'mobile' },
+                  { title: 'Alternate Number', dataIndex: 'Alternate Number', key: 'altNumber' },
                   { title: 'Delivery Address', dataIndex: 'Delivery Address', key: 'address' },
-                  { title: 'Courier', dataIndex: 'Courier', key: 'courier' },
-                  { title: 'Tracking URL', dataIndex: 'Tracking URL', key: 'trackingUrl' },
                   { title: 'Delivery Status', dataIndex: 'Delivery Status', key: 'deliveryStatus' },
-                  { title: 'Delivery Time', dataIndex: 'Delivery Time', key: 'deliveryTime' },
                 ]}
                 pagination={false}
                 bordered
@@ -583,21 +635,33 @@ const OrderDetail = ({ basePath = '/admin' }) => {
       )}
 
       {orderType === 'end_user' && (
-        <Card title="Customer Information" style={{ marginBottom: 24 }} className="order-detail-card" extra={renderCardExtra('retailer')}>
+        <Card title="Customer / Delivery Information" style={{ marginBottom: 24 }} className="order-detail-card" extra={renderCardExtra('retailer')}>
           <div className="order-detail-table-wrap">
             <Table
               dataSource={[{
                 key: '1',
-                'User Name': displayName,
-                'Contact Number': displayPhone,
-                'Email': displayEmail,
+                'Store Name': orderData.deliveryStoreName || '-',
+                'Customer Name': orderData.deliveryCustomerName || displayName,
+                'Street Name': orderData.deliveryStreetName || '-',
+                'Landmark': orderData.deliveryLandmark || '-',
+                'City': orderData.deliveryCity || '-',
+                'State': orderData.deliveryState || '-',
+                'PIN Code': orderData.deliveryPincode || '-',
+                'Mobile Number': orderData.deliveryMobileNumber || displayPhone,
+                'Alternate Number': orderData.deliveryAlternateNumber || '-',
                 'Delivery Address': displayAddress,
                 'Delivery Status': <Tag color={orderData.deliveryStatus === 'Delivered' ? '#15B9A4' : orderData.deliveryStatus === 'In Transit' ? '#6754A3' : '#999'}>{orderData.deliveryStatus || 'Pending'}</Tag>,
               }]}
               columns={[
-                { title: 'User Name', dataIndex: 'User Name', key: 'name' },
-                { title: 'Contact Number', dataIndex: 'Contact Number', key: 'contact' },
-                { title: 'Email', dataIndex: 'Email', key: 'email' },
+                { title: 'Store Name', dataIndex: 'Store Name', key: 'storeName' },
+                { title: 'Customer Name', dataIndex: 'Customer Name', key: 'customerName' },
+                { title: 'Street Name', dataIndex: 'Street Name', key: 'streetName' },
+                { title: 'Landmark', dataIndex: 'Landmark', key: 'landmark' },
+                { title: 'City', dataIndex: 'City', key: 'city' },
+                { title: 'State', dataIndex: 'State', key: 'state' },
+                { title: 'PIN Code', dataIndex: 'PIN Code', key: 'pincode' },
+                { title: 'Mobile Number', dataIndex: 'Mobile Number', key: 'mobile' },
+                { title: 'Alternate Number', dataIndex: 'Alternate Number', key: 'altNumber' },
                 { title: 'Delivery Address', dataIndex: 'Delivery Address', key: 'address' },
                 { title: 'Delivery Status', dataIndex: 'Delivery Status', key: 'deliveryStatus' },
               ]}

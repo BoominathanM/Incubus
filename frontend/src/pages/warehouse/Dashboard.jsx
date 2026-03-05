@@ -12,7 +12,7 @@ import {
 } from 'recharts'
 import Breadcrumbs from '../../components/Breadcrumbs'
 import dayjs from 'dayjs'
-import { useGetOrderStatsQuery, useGetOrdersQuery } from '../../store/api/orderApi'
+import { useGetOrderStatsQuery, useGetOrderStatsByDateQuery } from '../../store/api/orderApi'
 
 const { Title } = Typography
 const { RangePicker } = DatePicker
@@ -37,23 +37,21 @@ const WarehouseDashboard = () => {
   const { data: statsData, isLoading } = useGetOrderStatsQuery(dateParams)
   const os = statsData?.data ?? {}
 
-  const { data: ordersData } = useGetOrdersQuery(
-    { ...dateParams, limit: 300 },
+  const { data: orderStatsByDateData } = useGetOrderStatsByDateQuery(
+    { ...dateParams, group: 'day' },
     { refetchOnMountOrArgChange: 60 }
   )
-  const orders = ordersData?.data?.orders || []
 
-  // Line chart — orders per day
+  // Line chart — orders per day (total/pending/completed)
   const barData = useMemo(() => {
-    const dailyMap = {}
-    orders.forEach((o) => {
-      const key = dayjs(o.createdAt).format('YYYY-MM-DD')
-      const label = dayjs(o.createdAt).format('DD MMM')
-      if (!dailyMap[key]) dailyMap[key] = { date: label, Orders: 0 }
-      dailyMap[key].Orders++
-    })
-    return Object.keys(dailyMap).sort().map((k) => dailyMap[k])
-  }, [orders])
+    const rows = orderStatsByDateData?.data || []
+    return rows.map((r) => ({
+      date: dayjs(r.date).format('DD MMM'),
+      total: Number(r.total) || 0,
+      pending: Number(r.pending) || 0,
+      completed: Number(r.completed) || 0,
+    }))
+  }, [orderStatsByDateData])
 
   // Pie chart — delivery status breakdown
   const pieData = useMemo(() => {
@@ -125,7 +123,7 @@ const WarehouseDashboard = () => {
 
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={14}>
-          <Card title="Orders Per Day">
+          <Card title="Orders by Date">
             {barData.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={barData} margin={{ top: 4, right: 16, left: -10, bottom: 0 }}>
@@ -133,7 +131,9 @@ const WarehouseDashboard = () => {
                   <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                   <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
                   <Tooltip />
-                  <Line type="monotone" dataKey="Orders" stroke="#1890ff" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                  <Line type="monotone" dataKey="total" name="Total" stroke="#15B9A4" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                  <Line type="monotone" dataKey="pending" name="Pending" stroke="#faad14" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                  <Line type="monotone" dataKey="completed" name="Completed" stroke="#52c41a" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
                 </LineChart>
               </ResponsiveContainer>
             ) : (

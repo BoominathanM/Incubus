@@ -1,8 +1,106 @@
 const mongoose = require('mongoose')
 const Retailer = require('../models/Retailer')
+const EventTemplateMapping = require('../models/EventTemplateMapping.model')
+const askevaService = require('../services/askeva.service')
 const { validateFileType, uploadToCloudinary } = require('../utils/uploadCloudinary')
 const { generateRetailerId } = require('../utils/retailerId')
 const XLSX = require('xlsx')
+
+const COMPANY_ID = process.env.ASKEVA_COMPANY_ID || 'default'
+
+function normalizeRole(role) {
+  return String(role || '').trim().toLowerCase().replace(/[\s_-]+/g, '')
+}
+
+function isAdminRole(role) {
+  const r = normalizeRole(role)
+  return r === 'admin' || r === 'superadmin'
+}
+
+function resolveRetailerField(retailer, hrmsField) {
+  const cc = (retailer.whatsappCountryCode || '91').replace(/\D/g, '')
+  const num = (retailer.whatsappNumber || '').replace(/\D/g, '')
+  const whatsappFullNumber = cc + num
+  const address = [retailer.street1, retailer.street2, retailer.city, retailer.district, retailer.state, retailer.pincode]
+    .filter(Boolean)
+    .join(', ')
+
+  const map = {
+    'Retailer ID': retailer.retailerId || '',
+    'Business Name': retailer.businessName || '',
+    'Store Name': retailer.storeName || '',
+    'Contact Person': retailer.contactPerson || '',
+    'WhatsApp Number': whatsappFullNumber || num,
+    'Status': retailer.status || '',
+    'Rejected Reason': retailer.rejectedReason || '',
+    'Approved Date': retailer.approvedAt ? new Date(retailer.approvedAt).toLocaleDateString() : '',
+    'Rejected Date': retailer.rejectedAt ? new Date(retailer.rejectedAt).toLocaleDateString() : '',
+    'Address': address,
+  }
+
+  return map[hrmsField] ?? ''
+}
+
+async function sendRetailerNotification(retailer, eventType, companyId = COMPANY_ID) {
+  try {
+    let mapping = await EventTemplateMapping.findOne({
+      companyId,
+      hrmsEventType: eventType,
+      isEnabled: { $ne: false },
+    })
+      .populate('templateId', 'templateName language')
+      .lean()
+
+    if (!mapping || !mapping.templateId) {
+      mapping = await EventTemplateMapping.findOne({
+        hrmsEventType: eventType,
+        isEnabled: { $ne: false },
+      })
+        .populate('templateId', 'templateName language')
+        .lean()
+    }
+
+    if (!mapping || !mapping.templateId) {
+      console.log(`[RetailerNotify] No active mapping for event '${eventType}' - skipping`)
+      return
+    }
+
+    const resolvedCompanyId = mapping.companyId || companyId
+    const templateName = mapping.templateName || mapping.templateId.templateName
+    const language = (mapping.templateId.language || 'en').toLowerCase()
+
+    const parameters = {}
+    for (const v of (mapping.variables || [])) {
+      const val = resolveRetailerField(retailer, v.hrmsField) || v.defaultValue || ''
+      const key = v.templateVariable.replace(/\{\{|\}\}/g, '').trim()
+      parameters[key] = val
+    }
+
+    const cc = (retailer.whatsappCountryCode || '91').replace(/\D/g, '')
+    const num = (retailer.whatsappNumber || '').replace(/\D/g, '')
+    const recipient = cc + num
+    if (!recipient || recipient.length < 10) {
+      console.warn(`[RetailerNotify] Invalid WhatsApp number for retailer ${retailer.retailerId || retailer._id} - skipping`)
+      return
+    }
+
+    console.log(`[RetailerNotify] Sending '${eventType}' to ${recipient} for retailer ${retailer.retailerId || retailer._id} | template: ${templateName} | params:`, parameters)
+
+    const result = await askevaService.sendMessage({
+      companyId: resolvedCompanyId,
+      module: 'retailer',
+      payload: { to: recipient, templateName, language, parameters },
+    })
+
+    if (result.success) {
+      console.log(`[RetailerNotify] Sent '${eventType}' to ${recipient} for retailer ${retailer.retailerId || retailer._id}`)
+    } else {
+      console.warn(`[RetailerNotify] Failed to send '${eventType}' to ${recipient}:`, result.error)
+    }
+  } catch (err) {
+    console.error(`[RetailerNotify] Error sending '${eventType}' for retailer ${retailer?.retailerId || retailer?._id}:`, err.message)
+  }
+}
 
 // Public: returns all active retailers in chatbot-friendly format
 async function getActiveRetailers(req, res) {
@@ -102,7 +200,7 @@ function normalizeRow(row) {
 async function list(req, res) {
   try {
     const { status, search, dateFrom, dateTo } = req.query
-    const isAdmin = ['admin', 'superadmin'].includes(req.user?.role)
+    const isAdmin = isAdminRole(req.user?.role)
     const userId = req.user?.id
 
     let query = {}
@@ -160,7 +258,7 @@ async function getById(req, res) {
   try {
     const r = await Retailer.findById(req.params.id).populate('createdBy', 'name email').lean()
     if (!r) return res.status(404).json({ success: false, message: 'Retailer not found' })
-    const isAdmin = ['admin', 'superadmin'].includes(req.user?.role)
+    const isAdmin = isAdminRole(req.user?.role)
     if (!isAdmin && r.createdBy?._id?.toString() !== req.user?.id && r.status === 'pending_approval') {
       return res.status(403).json({ success: false, message: 'Not allowed' })
     }
@@ -208,7 +306,7 @@ async function update(req, res) {
   try {
     const existing = await Retailer.findById(req.params.id)
     if (!existing) return res.status(404).json({ success: false, message: 'Retailer not found' })
-    const isAdmin = ['admin', 'superadmin'].includes(req.user?.role)
+    const isAdmin = isAdminRole(req.user?.role)
     if (!isAdmin && existing.createdBy?.toString() !== req.user?.id) {
       return res.status(403).json({ success: false, message: 'Not allowed to edit this retailer' })
     }
@@ -256,7 +354,7 @@ async function remove(req, res) {
   try {
     const existing = await Retailer.findById(req.params.id)
     if (!existing) return res.status(404).json({ success: false, message: 'Retailer not found' })
-    const isAdmin = ['admin', 'superadmin'].includes(req.user?.role)
+    const isAdmin = isAdminRole(req.user?.role)
     if (!isAdmin && existing.createdBy?.toString() !== req.user?.id) {
       return res.status(403).json({ success: false, message: 'Not allowed to delete' })
     }
@@ -284,6 +382,7 @@ async function approve(req, res) {
     } catch (_) {
       // Populate failed (e.g. deleted user ref); approval still succeeded
     }
+    sendRetailerNotification(retailer, 'Approve Retailer', COMPANY_ID)
     return res.json({ success: true, retailer })
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message || 'Approve failed' })
@@ -310,6 +409,7 @@ async function reject(req, res) {
       const populated = await Retailer.findById(r._id).populate('createdBy', 'name email').lean()
       if (populated) retailer = populated
     } catch (_) {}
+    sendRetailerNotification(retailer, 'Reject Retailer', COMPANY_ID)
     return res.json({ success: true, retailer })
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message || 'Reject failed' })
@@ -373,7 +473,7 @@ async function upload(req, res) {
 async function exportRetailers(req, res) {
   try {
     const { status, search, dateFrom, dateTo } = req.query
-    const isAdmin = ['admin', 'superadmin'].includes(req.user?.role)
+    const isAdmin = isAdminRole(req.user?.role)
     const userId = req.user?.id
 
     let query = {}
@@ -615,7 +715,7 @@ async function importRetailers(req, res) {
 
 async function stats(req, res) {
   try {
-    const isAdmin = ['admin', 'superadmin'].includes(req.user?.role)
+    const isAdmin = isAdminRole(req.user?.role)
     const userId = req.user?.id
     const todayStart = new Date()
     todayStart.setHours(0, 0, 0, 0)
@@ -629,7 +729,7 @@ async function stats(req, res) {
       approvedAt: { $gte: todayStart, $lt: todayEnd },
     }
 
-    const [total, pending, approvedToday, rejectedToday, rejectedTotal, approvedTodayList] = await Promise.all([
+    const [total, pending, approvedToday, rejectedToday, rejectedTotal, onboardedCount, approvedTodayList] = await Promise.all([
       Retailer.countDocuments(isAdmin ? {} : { createdBy: userId }),
       Retailer.countDocuments({ ...baseQuery, status: 'pending_approval' }),
       Retailer.countDocuments(approvedTodayQuery),
@@ -638,6 +738,7 @@ async function stats(req, res) {
         rejectedAt: { $gte: todayStart, $lt: todayEnd },
       }),
       Retailer.countDocuments({ ...baseQuery, status: 'rejected' }),
+      Retailer.countDocuments({ ...baseQuery, status: { $in: ['approved', 'active', 'disabled'] } }),
       isAdmin
         ? Retailer.find(approvedTodayQuery)
             .select('retailerId businessName storeName approvedAt createdBy')
@@ -655,8 +756,8 @@ async function stats(req, res) {
       approvedToday: isAdmin ? approvedToday : undefined,
       rejectedToday: isAdmin ? rejectedToday : undefined,
       rejectedTotal: rejectedTotal,
-      requestsRaised: !isAdmin ? total : undefined,
-      onboarded: !isAdmin ? await Retailer.countDocuments({ createdBy: userId, status: { $in: ['approved', 'active', 'disabled'] } }) : undefined,
+      requestsRaised: total,
+      onboarded: onboardedCount,
     }
     if (isAdmin && Array.isArray(approvedTodayList)) {
       statsPayload.approvedTodayList = approvedTodayList.map((r) => ({
@@ -677,43 +778,150 @@ async function stats(req, res) {
 
 async function statsByDate(req, res) {
   try {
-    const isAdmin = ['admin', 'superadmin'].includes(req.user?.role)
+    const isAdmin = isAdminRole(req.user?.role)
     const userId = req.user?.id
     const group = (req.query.group || 'day').toLowerCase()
     const byMonth = group === 'month'
 
-    const matchQuery = isAdmin ? {} : {}
-    if (!isAdmin && userId) matchQuery.createdBy = new mongoose.Types.ObjectId(userId)
-    const daysBack = byMonth ? 365 : 30
-    const start = new Date()
-    start.setDate(start.getDate() - daysBack)
-    start.setHours(0, 0, 0, 0)
-    matchQuery.createdAt = { $gte: start }
+    const baseMatch = isAdmin ? {} : {}
+    if (!isAdmin && userId) baseMatch.createdBy = new mongoose.Types.ObjectId(userId)
 
-    const dateFormat = byMonth ? { $dateToString: { format: '%Y-%m', date: '$createdAt' } } : { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }
-    const pipeline = [
-      { $match: matchQuery },
-      { $group: { _id: dateFormat, count: { $sum: 1 } } },
+    const start = req.query.startDate ? new Date(req.query.startDate) : null
+    const end = req.query.endDate ? new Date(req.query.endDate) : null
+    const createdAtFilter = {}
+    if (!start || !end) {
+      const daysBack = byMonth ? 365 : 30
+      const defaultStart = new Date()
+      defaultStart.setDate(defaultStart.getDate() - daysBack)
+      defaultStart.setHours(0, 0, 0, 0)
+      if (!start) createdAtFilter.$gte = defaultStart
+    }
+    if (start) createdAtFilter.$gte = start
+    if (end) createdAtFilter.$lte = end
+
+    const dateFormatCreated = byMonth
+      ? { $dateToString: { format: '%Y-%m', date: '$createdAt' } }
+      : { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }
+    const dateFormatApproved = byMonth
+      ? { $dateToString: { format: '%Y-%m', date: '$approvedAt' } }
+      : { $dateToString: { format: '%Y-%m-%d', date: '$approvedAt' } }
+    const dateFormatRejected = byMonth
+      ? { $dateToString: { format: '%Y-%m', date: '$rejectedAt' } }
+      : { $dateToString: { format: '%Y-%m-%d', date: '$rejectedAt' } }
+
+    const createdMatch = { ...baseMatch }
+    if (Object.keys(createdAtFilter).length) createdMatch.createdAt = createdAtFilter
+    const createdPipeline = [
+      { $match: createdMatch },
+      { $group: { _id: dateFormatCreated, requests: { $sum: 1 } } },
       { $sort: { _id: 1 } },
     ]
-    const results = await Retailer.aggregate(pipeline)
+
+    const onboardedMatch = {
+      ...(isAdmin ? {} : baseMatch),
+      status: { $in: ['approved', 'active', 'disabled'] },
+      approvedAt: { $ne: null },
+    }
+    if (start || end) {
+      onboardedMatch.approvedAt = { ...(onboardedMatch.approvedAt || {}) }
+      if (start) onboardedMatch.approvedAt.$gte = start
+      if (end) onboardedMatch.approvedAt.$lte = end
+    }
+    const onboardedPipeline = [
+      { $match: onboardedMatch },
+      { $group: { _id: dateFormatApproved, onboarded: { $sum: 1 } } },
+      { $sort: { _id: 1 } },
+    ]
+
+    const rejectedMatch = {
+      ...(isAdmin ? {} : baseMatch),
+      status: 'rejected',
+      rejectedAt: { $ne: null },
+    }
+    if (start || end) {
+      rejectedMatch.rejectedAt = { ...(rejectedMatch.rejectedAt || {}) }
+      if (start) rejectedMatch.rejectedAt.$gte = start
+      if (end) rejectedMatch.rejectedAt.$lte = end
+    }
+    const rejectedPipeline = [
+      { $match: rejectedMatch },
+      { $group: { _id: dateFormatRejected, rejected: { $sum: 1 } } },
+      { $sort: { _id: 1 } },
+    ]
+
+    const [createdResults, onboardedResults, rejectedResults] = await Promise.all([
+      Retailer.aggregate(createdPipeline),
+      Retailer.aggregate(onboardedPipeline),
+      Retailer.aggregate(rejectedPipeline),
+    ])
+
+    const merged = new Map()
+    const upsert = (key) => {
+      if (!merged.has(key)) merged.set(key, { date: key, requests: 0, onboarded: 0, rejected: 0 })
+      return merged.get(key)
+    }
+    for (const r of createdResults) upsert(r._id).requests = r.requests || 0
+    for (const r of onboardedResults) upsert(r._id).onboarded = r.onboarded || 0
+    for (const r of rejectedResults) upsert(r._id).rejected = r.rejected || 0
 
     const labelKey = byMonth ? 'month' : 'date'
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    const data = results.map((r) => {
-      const id = r._id
+    const data = [...merged.values()]
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+      .map((r) => {
+      const id = r.date
       if (byMonth && id) {
         const [y, m] = id.split('-')
         const monthLabel = `${monthNames[parseInt(m, 10) - 1]} ${y}`
-        return { [labelKey]: monthLabel, date: id, count: r.count }
+        return {
+          [labelKey]: monthLabel,
+          date: id,
+          count: r.requests || 0,
+          requests: r.requests || 0,
+          onboarded: r.onboarded || 0,
+          rejected: r.rejected || 0,
+        }
       }
-      return { [labelKey]: id, date: id, count: r.count }
+      return {
+        [labelKey]: id,
+        date: id,
+        count: r.requests || 0,
+        requests: r.requests || 0,
+        onboarded: r.onboarded || 0,
+        rejected: r.rejected || 0,
+      }
     })
 
     return res.json({ success: true, data })
   } catch (err) {
     console.error(err)
     return res.status(500).json({ success: false, message: err.message || 'Failed to get stats by date' })
+  }
+}
+
+/** POST /api/retailers/onboard-from-webhook — create/update retailer from a WebhookMessage (flow_token retailer_form_copy). Admin/superadmin. */
+async function onboardFromWebhookMessage(req, res) {
+  try {
+    const { webhookMessageId } = req.body || {}
+    if (!webhookMessageId) {
+      return res.status(400).json({ success: false, message: 'webhookMessageId is required' })
+    }
+    const { ensureRetailerFromWebhookMessage } = require('../services/retailerFromFlow')
+    const retailer = await ensureRetailerFromWebhookMessage(webhookMessageId)
+    if (!retailer) {
+      return res.status(404).json({
+        success: false,
+        message: 'Webhook message not found or does not contain retailer_form_copy flow data',
+      })
+    }
+    return res.status(200).json({
+      success: true,
+      message: 'Retailer onboarded from webhook',
+      data: { retailerId: retailer.retailerId, status: retailer.status, _id: retailer._id },
+    })
+  } catch (err) {
+    console.error('[Retailer] onboardFromWebhookMessage error:', err.message)
+    return res.status(500).json({ success: false, message: err.message || 'Failed to onboard from webhook' })
   }
 }
 
@@ -733,4 +941,5 @@ module.exports = {
   stats,
   statsByDate,
   getActiveRetailers,
+  onboardFromWebhookMessage,
 }

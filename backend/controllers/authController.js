@@ -5,6 +5,7 @@ const User = require('../models/User')
 const JWT_SECRET = process.env.JWT_SECRET || 'incubus-secret'
 
 exports.login = async (req, res) => {
+  console.log("im calledji")
   try {
     const email = req.body.email?.trim?.()
     const password = req.body.password

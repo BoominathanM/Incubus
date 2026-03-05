@@ -4,6 +4,8 @@ const orderItemSchema = new mongoose.Schema(
   {
     productRetailerId: { type: String, default: '' },
     quantity: { type: Number, default: 1 },
+    productName: { type: String, default: '' },
+    itemPrice: { type: Number, default: 0 },
   },
   { _id: false }
 )
@@ -15,6 +17,7 @@ const orderManagementSchema = new mongoose.Schema(
 
     // Source webhook reference
     webhookMessageId: { type: mongoose.Schema.Types.ObjectId, ref: 'WebhookMessage', default: null },
+    referenceId: { type: String, default: '' }, // e.g. ORDER-04FFjq7u from interactive.reference_id (payment status linked)
 
     // Customer type: retailer if retailerMatched === true, else enduser
     type: { type: String, enum: ['retailer', 'enduser'], required: true },
@@ -36,6 +39,16 @@ const orderManagementSchema = new mongoose.Schema(
     contactNumber: { type: String, default: '' },
     contactEmail: { type: String, default: '' },
     deliveryAddress: { type: String, default: '' },
+    // Delivery form fields from flowResponseData (delivery_address_copy)
+    deliveryStoreName: { type: String, default: '' },
+    deliveryCustomerName: { type: String, default: '' },
+    deliveryStreetName: { type: String, default: '' },
+    deliveryLandmark: { type: String, default: '' },
+    deliveryCity: { type: String, default: '' },
+    deliveryState: { type: String, default: '' },
+    deliveryPincode: { type: String, default: '' },
+    deliveryMobileNumber: { type: String, default: '' },
+    deliveryAlternateNumber: { type: String, default: '' },
 
     // Payment
     amount: { type: Number, default: 0 },
@@ -91,10 +104,10 @@ const orderManagementSchema = new mongoose.Schema(
 )
 
 orderManagementSchema.index({ companyId: 1, createdAt: -1 })
-orderManagementSchema.index({ orderId: 1 })
 orderManagementSchema.index({ type: 1 })
 orderManagementSchema.index({ retailer: 1 })
 orderManagementSchema.index({ paymentStatus: 1 })
 orderManagementSchema.index({ finalStatus: 1 })
+orderManagementSchema.index({ referenceId: 1 }, { sparse: true })
 
 module.exports = mongoose.model('OrderManagement', orderManagementSchema, 'ordersmanagement')
