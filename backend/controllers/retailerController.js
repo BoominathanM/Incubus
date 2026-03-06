@@ -5,6 +5,7 @@ const askevaService = require('../services/askeva.service')
 const { notifyAdminAndSuperAdmin, notifyUser } = require('../services/notificationService')
 const { validateFileType, uploadToCloudinary } = require('../utils/uploadCloudinary')
 const { generateRetailerId } = require('../utils/retailerId')
+const { ROLE_LABELS } = require('../constants/roles')
 const XLSX = require('xlsx')
 
 const COMPANY_ID = process.env.ASKEVA_COMPANY_ID || 'default'
@@ -237,16 +238,22 @@ async function list(req, res) {
     }
 
     const list = await Retailer.find(query)
-      .populate('createdBy', 'name email')
+      .populate('createdBy', 'name email role')
       .sort({ createdAt: -1 })
       .lean()
 
-    const withCreatedBy = list.map((r) => ({
-      ...r,
-      createdBy: r.createdBy?.name || r.createdBy?.email || 'WhatsApp',
-      createdById: r.createdBy?._id?.toString() || null,
-      createdAt: r.createdAt ? new Date(r.createdAt).toLocaleString() : '',
-    }))
+    const withCreatedBy = list.map((r) => {
+      const creator = r.createdBy
+      const roleLabel = creator?.role ? (ROLE_LABELS[creator.role.toLowerCase()] || creator.role) : 'WhatsApp'
+      const creatorName = creator ? (creator.name || creator.email || null) : null
+      return {
+        ...r,
+        createdBy: roleLabel,
+        createdByName: creatorName,
+        createdById: creator?._id?.toString() || null,
+        createdAt: r.createdAt ? new Date(r.createdAt).toLocaleString() : '',
+      }
+    })
 
     return res.json({ success: true, retailers: withCreatedBy })
   } catch (err) {

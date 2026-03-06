@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react'
-import { Tabs, Table, Tag, Button, Space, Input, Modal, Form, Select, message, Typography, Upload, Row, Col, DatePicker, Alert, Dropdown } from 'antd'
+import { Tabs, Table, Tag, Button, Space, Input, Modal, Form, Select, message, Typography, Upload, Row, Col, DatePicker, Alert, Dropdown, Tooltip } from 'antd'
 import {
   SearchOutlined,
   PlusOutlined,
@@ -126,7 +126,17 @@ const RetailerBoard = () => {
       ),
     },
     { title: 'Created At', dataIndex: 'createdAt', key: 'createdAt', render: (t) => t || '—' },
-    { title: 'Created By', dataIndex: 'createdBy', key: 'createdBy', render: (by) => (by ? <Tag style={{ margin: 0, padding: '2px 10px' }}>{by}</Tag> : 'WhatsApp') },
+    {
+      title: 'Created By',
+      dataIndex: 'createdBy',
+      key: 'createdBy',
+      render: (by, record) => {
+        const label = by || 'WhatsApp'
+        const tooltipTitle = record.createdByName || (record.createdById ? null : 'Created via WhatsApp')
+        const tag = <Tag style={{ margin: 0, padding: '2px 10px' }}>{label}</Tag>
+        return tooltipTitle ? <Tooltip title={tooltipTitle}>{tag}</Tooltip> : tag
+      },
+    },
     {
       title: 'Actions',
       key: 'actions',
@@ -164,7 +174,17 @@ const RetailerBoard = () => {
       ),
     },
     { title: 'Created At', dataIndex: 'createdAt', key: 'createdAt', render: (t) => t || '—' },
-    { title: 'Created By', dataIndex: 'createdBy', key: 'createdBy', render: (by) => (by ? <Tag style={{ margin: 0, padding: '2px 10px' }}>{by}</Tag> : 'WhatsApp') },
+    {
+      title: 'Created By',
+      dataIndex: 'createdBy',
+      key: 'createdBy',
+      render: (by, record) => {
+        const label = by || 'WhatsApp'
+        const tooltipTitle = record.createdByName || (record.createdById ? null : 'Created via WhatsApp')
+        const tag = <Tag style={{ margin: 0, padding: '2px 10px' }}>{label}</Tag>
+        return tooltipTitle ? <Tooltip title={tooltipTitle}>{tag}</Tooltip> : tag
+      },
+    },
     {
       title: 'Actions',
       key: 'actions',
@@ -200,6 +220,17 @@ const RetailerBoard = () => {
     },
     { title: 'Rejected At', dataIndex: 'rejectedAt', key: 'rejectedAt', width: 160, render: (t) => (t ? new Date(t).toLocaleString() : '—') },
     { title: 'Created At', dataIndex: 'createdAt', key: 'createdAt', render: (t) => t || '—' },
+    {
+      title: 'Created By',
+      dataIndex: 'createdBy',
+      key: 'createdBy',
+      render: (by, record) => {
+        const label = by || 'WhatsApp'
+        const tooltipTitle = record.createdByName || (record.createdById ? null : 'Created via WhatsApp')
+        const tag = <Tag style={{ margin: 0, padding: '2px 10px' }}>{label}</Tag>
+        return tooltipTitle ? <Tooltip title={tooltipTitle}>{tag}</Tooltip> : tag
+      },
+    },
     {
       title: 'Actions',
       key: 'actions',
