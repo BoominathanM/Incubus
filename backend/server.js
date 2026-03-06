@@ -17,14 +17,14 @@ const cron = require('node-cron')
 const { syncAllCompanies } = require('./services/productSync.service')
 
 const app = express()
-const PORT = process.env.PORT || 8000
+const PORT = process.env.PORT || 6000
 const allowedOrigins = [
   'http://localhost:7001',
-  'http://localhost:8000',
+  'http://localhost:6000',
   'http://localhost:5173',
   'http://127.0.0.1:7001',
   'http://127.0.0.1:5173',
-  'https://incubus.vercel.app',
+  'https://incubus.askeva.io',
 ]
 const corsOrigin = process.env.FRONTEND_URL
   ? [process.env.FRONTEND_URL, ...allowedOrigins]
