@@ -29,4 +29,4 @@ webhookMessageSchema.index(
   { unique: true, partialFilterExpression: { messageId: { $gt: '' } } }
 )
 
-module.exports = mongoose.model('WebhookMessage', webhookMessageSchema,)
+module.exports = mongoose.model('WebhookMessage', webhookMessageSchema, 'webhookmessages')

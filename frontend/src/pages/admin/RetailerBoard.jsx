@@ -125,8 +125,8 @@ const RetailerBoard = () => {
         </Tag>
       ),
     },
-    { title: 'Created By', dataIndex: 'createdBy', key: 'createdBy', render: (by) => <Tag style={{ margin: 0, padding: '2px 10px' }}>{by}</Tag> },
     { title: 'Created At', dataIndex: 'createdAt', key: 'createdAt', render: (t) => t || '—' },
+    { title: 'Created By', dataIndex: 'createdBy', key: 'createdBy', render: (by) => (by ? <Tag style={{ margin: 0, padding: '2px 10px' }}>{by}</Tag> : 'WhatsApp') },
     {
       title: 'Actions',
       key: 'actions',
@@ -164,7 +164,7 @@ const RetailerBoard = () => {
       ),
     },
     { title: 'Created At', dataIndex: 'createdAt', key: 'createdAt', render: (t) => t || '—' },
-    { title: 'Created By', dataIndex: 'createdBy', key: 'createdBy', render: (by) => <Tag style={{ margin: 0, padding: '2px 10px' }}>{by}</Tag> },
+    { title: 'Created By', dataIndex: 'createdBy', key: 'createdBy', render: (by) => (by ? <Tag style={{ margin: 0, padding: '2px 10px' }}>{by}</Tag> : 'WhatsApp') },
     {
       title: 'Actions',
       key: 'actions',

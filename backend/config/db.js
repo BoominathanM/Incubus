@@ -4,6 +4,8 @@ const Retailer = require('../models/Retailer')
 const CONNECT_TIMEOUT_MS = 10000
 const SERVER_SELECTION_TIMEOUT_MS = 10000
 
+const UNWANTED_COLLECTIONS = ['webhos', 'webhs', 'webs', 'ws', 'boomi', 'pendingordersessions']
+
 async function cleanupStaleRetailerIndexes() {
   try {
     const indexes = await Retailer.collection.indexes()
@@ -14,6 +16,22 @@ async function cleanupStaleRetailerIndexes() {
     }
   } catch (err) {
     console.warn('Retailer index cleanup warning:', err.message)
+  }
+}
+
+async function cleanupUnwantedCollections() {
+  try {
+    const db = mongoose.connection.db
+    const existing = await db.listCollections().toArray()
+    const names = existing.map((c) => c.name)
+    for (const name of UNWANTED_COLLECTIONS) {
+      if (names.includes(name)) {
+        await db.collection(name).drop()
+        console.log('Dropped unwanted collection:', name)
+      }
+    }
+  } catch (err) {
+    console.warn('Unwanted collections cleanup warning:', err.message)
   }
 }
 
@@ -29,6 +47,7 @@ const connectDB = async () => {
     })
     console.log(`MongoDB connected: ${conn.connection.host}`)
     await cleanupStaleRetailerIndexes()
+    await cleanupUnwantedCollections()
   } catch (err) {
     console.error('MongoDB connection error:', err.message)
     process.exit(1)

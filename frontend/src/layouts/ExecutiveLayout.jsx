@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import LayoutWrapper from '../components/LayoutWrapper'
 import ExecutiveDashboard from '../pages/executive/Dashboard'
 import CustomerBoard from '../pages/executive/CustomerBoard'
+import Notifications from '../pages/admin/Notifications'
 import {
   DashboardOutlined,
   UserOutlined,
@@ -29,6 +30,7 @@ const ExecutiveLayout = () => {
       <Routes>
         <Route path="/dashboard" element={<ExecutiveDashboard />} />
         <Route path="/customers" element={<CustomerBoard />} />
+        <Route path="/notifications" element={<Notifications />} />
         <Route path="*" element={<Navigate to="/executive/dashboard" replace />} />
       </Routes>
     </LayoutWrapper>
