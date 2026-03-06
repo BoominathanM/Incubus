@@ -1,6 +1,7 @@
 const Retailer = require('../models/Retailer')
 const WebhookMessage = require('../models/WebhookMessage.model')
 const { createOrderFromWebhook, updatePendingOrderDelivery, updatePendingOrderPayment } = require('./orderController')
+const { notifyAdminAndSuperAdmin, notifyBillingAgents } = require('../services/notificationService')
 const { generateRetailerId } = require('../utils/retailerId')
 const { responseJsonHasRetailerFormCopy, responseJsonStrHasRetailerFormCopy, responseJsonStringHasRetailerFormCopy, extractResponseJsonObject, getFlowTokenFromResponseJson, verifyWebhookFlowFromRaw, FLOW_TOKEN_RETAILER, FLOW_TOKEN_DELIVERY } = require('../services/retailerFromFlow')
 
@@ -435,6 +436,12 @@ exports.receiveRetailerWebhook = async (req, res) => {
         try {
           const retailer = await upsertRetailerFromFlow({ fromNumber, fromName, flowData: body })
           console.log('[RetailerWebhook] Retailer onboarded (flat retailer_form_copy):', retailer?.retailerId, '| status:', retailer?.status)
+          notifyAdminAndSuperAdmin(
+            'New retailer from WhatsApp',
+            `Retailer ${retailer?.businessName || retailer?.retailerId || 'Unknown'} registered via WhatsApp. Please verify.`,
+            'retailer_webhook',
+            retailer?.retailerId || retailer?._id?.toString()
+          ).catch((e) => console.warn('[RetailerWebhook] notifyAdminAndSuperAdmin failed:', e.message))
           await WebhookMessage.create({
             companyId,
             messageId: '',
@@ -644,6 +651,17 @@ exports.receiveRetailerWebhook = async (req, res) => {
                 })
                 if (order) {
                   console.log('[RetailerWebhook] Pending order created in OrderManagement:', order.orderId, '| from:', from)
+                  notifyAdminAndSuperAdmin(
+                    'New order from WhatsApp',
+                    `Order ${order.orderId} placed via WhatsApp. Please review.`,
+                    'order_webhook',
+                    order.orderId
+                  ).catch((e) => console.warn('[RetailerWebhook] notifyAdminAndSuperAdmin failed:', e.message))
+                  notifyBillingAgents(
+                    'New order arrived – verify',
+                    `Order ${order.orderId} has been placed. Please verify.`,
+                    order.orderId
+                  ).catch((e) => console.warn('[RetailerWebhook] notifyBillingAgents failed:', e.message))
                 }
               } catch (orderErr) {
                 console.warn('[RetailerWebhook] createOrderFromWebhook failed:', orderErr.message)
@@ -707,6 +725,12 @@ exports.receiveRetailerWebhook = async (req, res) => {
                     const retailer = await upsertRetailerFromFlow({ fromNumber: fromForRetailer, fromName, flowData })
                     retailerFromFlow = retailer
                     console.log('[RetailerWebhook] IDENTIFY | RETAILER created/updated | retailerId:', retailer?.retailerId, '| status:', retailer?.status, '| from:', from)
+                    notifyAdminAndSuperAdmin(
+                      'New retailer from WhatsApp',
+                      `Retailer ${retailer?.businessName || retailer?.retailerId || 'Unknown'} registered via WhatsApp. Please verify.`,
+                      'retailer_webhook',
+                      retailer?.retailerId || retailer?._id?.toString()
+                    ).catch((e) => console.warn('[RetailerWebhook] notifyAdminAndSuperAdmin failed:', e.message))
                   } catch (err) {
                     console.error('[RetailerWebhook] upsertRetailerFromFlow failed:', err.message, err.stack)
                   }

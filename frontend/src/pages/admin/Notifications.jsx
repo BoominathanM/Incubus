@@ -2,85 +2,82 @@ import React, { useState } from 'react'
 import { List, Badge, Tag, Button, Space, Input, Empty, Typography } from 'antd'
 import { SearchOutlined, BellOutlined } from '@ant-design/icons'
 import Breadcrumbs from '../../components/Breadcrumbs'
+import {
+  useGetNotificationsQuery,
+  useMarkNotificationReadMutation,
+  useMarkAllNotificationsReadMutation,
+  useDeleteNotificationMutation,
+  useClearAllNotificationsMutation,
+} from '../../store/api/notificationApi'
 
 const { Title } = Typography
 
+const TYPE_COLORS = {
+  order: '#15B9A4',
+  payment: '#faad14',
+  retailer: '#6754A3',
+  billing: '#1890ff',
+  delivery: '#52c41a',
+  retailer_webhook: '#6754A3',
+  retailer_executive: '#722ed1',
+  retailer_approve: '#52c41a',
+  retailer_reject: '#ff4d4f',
+  order_webhook: '#15B9A4',
+  retailer_webhook_executive: '#722ed1',
+  order_new: '#1890ff',
+  billing_done: '#52c41a',
+}
+
 const Notifications = () => {
-  const [notifications, setNotifications] = useState([
-    {
-      key: '1',
-      title: 'New Order Received',
-      description: 'Order ORD-001 has been placed by ABC Store',
-      time: '2 minutes ago',
-      type: 'order',
-      read: false,
-    },
-    {
-      key: '2',
-      title: 'Payment Pending',
-      description: 'Order ORD-002 payment is pending',
-      time: '15 minutes ago',
-      type: 'payment',
-      read: false,
-    },
-    {
-      key: '3',
-      title: 'Retailer Approval Required',
-      description: 'New retailer registration request from XYZ Mart',
-      time: '1 hour ago',
-      type: 'retailer',
-      read: true,
-    },
-    {
-      key: '4',
-      title: 'Order Dispatched',
-      description: 'Order ORD-003 has been dispatched',
-      time: '2 hours ago',
-      type: 'order',
-      read: true,
-    },
-    {
-      key: '5',
-      title: 'Delivery Confirmed',
-      description: 'Order ORD-004 has been delivered successfully',
-      time: '3 hours ago',
-      type: 'delivery',
-      read: true,
-    },
-    {
-      key: '6',
-      title: 'New Order Received',
-      description: 'Order ORD-005 has been placed by Super Shop',
-      time: '4 hours ago',
-      type: 'order',
-      read: true,
-    },
-    {
-      key: '7',
-      title: 'Billing Invoice Generated',
-      description: 'Invoice INV-001 has been generated for Order ORD-001',
-      time: '5 hours ago',
-      type: 'billing',
-      read: true,
-    },
-  ])
+  const [searchText, setSearchText] = useState('')
+  const { data, isLoading } = useGetNotificationsQuery(
+    { page: 1, limit: 50 },
+    { refetchInterval: 10000 }
+  )
+  const [markRead] = useMarkNotificationReadMutation()
+  const [markAllRead] = useMarkAllNotificationsReadMutation()
+  const [deleteNotification] = useDeleteNotificationMutation()
+  const [clearAll] = useClearAllNotificationsMutation()
 
-  const handleMarkAsRead = (notification) => {
-    setNotifications(notifications.map(n => 
-      n.key === notification.key ? { ...n, read: true } : n
-    ))
+  const notifications = data?.data?.notifications ?? []
+  const filtered = searchText.trim()
+    ? notifications.filter(
+        (n) =>
+          (n.title || '').toLowerCase().includes(searchText.toLowerCase()) ||
+          (n.description || '').toLowerCase().includes(searchText.toLowerCase())
+      )
+    : notifications
+
+  const handleMarkAsRead = async (notification) => {
+    try {
+      await markRead(notification._id).unwrap()
+    } catch (e) {
+      // ignore
+    }
   }
 
-  const handleMarkAllAsRead = () => {
-    setNotifications(notifications.map(n => ({ ...n, read: true })))
+  const handleMarkAllAsRead = async () => {
+    try {
+      await markAllRead().unwrap()
+    } catch (e) {
+      // ignore
+    }
   }
 
-  const handleDeleteNotification = (notification) => {
-    setNotifications(notifications.filter(n => n.key !== notification.key))
+  const handleDeleteNotification = async (notification) => {
+    try {
+      await deleteNotification(notification._id).unwrap()
+    } catch (e) {
+      // ignore
+    }
   }
 
-  const handleClearAll = () => {
-    setNotifications([])
+  const handleClearAll = async () => {
+    try {
+      await clearAll().unwrap()
+    } catch (e) {
+      // ignore
+    }
   }
 
   return (
@@ -91,10 +88,10 @@ const Notifications = () => {
           <BellOutlined /> Notifications
         </Title>
         <Space>
-          <Button onClick={handleMarkAllAsRead}>
+          <Button onClick={handleMarkAllAsRead} disabled={!notifications.some((n) => !n.read)}>
             Mark All as Read
           </Button>
-          <Button danger onClick={handleClearAll}>
+          <Button danger onClick={handleClearAll} disabled={notifications.length === 0}>
             Clear All
           </Button>
         </Space>
@@ -103,11 +100,15 @@ const Notifications = () => {
         placeholder="Search notifications"
         prefix={<SearchOutlined />}
         style={{ marginBottom: 16, maxWidth: 400 }}
+        value={searchText}
+        onChange={(e) => setSearchText(e.target.value)}
       />
-      {notifications.length > 0 ? (
+      {isLoading ? (
+        <div style={{ padding: 40, textAlign: 'center' }}>Loading...</div>
+      ) : filtered.length > 0 ? (
         <List
           itemLayout="horizontal"
-          dataSource={notifications}
+          dataSource={filtered}
           renderItem={(item) => (
             <List.Item
               style={{
@@ -142,14 +143,10 @@ const Notifications = () => {
                     <span style={{ fontWeight: item.read ? 'normal' : 'bold' }}>
                       {item.title}
                     </span>
-                    <Tag color={
-                      item.type === 'order' ? '#15B9A4' :
-                      item.type === 'payment' ? '#faad14' :
-                      item.type === 'retailer' ? '#6754A3' :
-                      item.type === 'billing' ? '#1890ff' :
-                      '#52c41a'
-                    }>
-                      {item.type}
+                    <Tag
+                      color={TYPE_COLORS[item.type] || '#15B9A4'}
+                    >
+                      {item.type?.replace(/_/g, ' ') || 'notification'}
                     </Tag>
                   </Space>
                 }

@@ -5,6 +5,7 @@ const Retailer = require('../models/Retailer')
 const EventTemplateMapping = require('../models/EventTemplateMapping.model')
 const askevaService = require('../services/askeva.service')
 const { responseJsonHasRetailerFormCopy, responseJsonHasDeliveryFormCopy, getFlowTokenFromResponseJson, responseJsonStringHasRetailerFormCopy, mustBlockOrderCreation, FLOW_TOKEN_DELIVERY } = require('../services/retailerFromFlow')
+const { notifyWarehouseAgents, notifyAdminAndSuperAdmin, notifyBillingAgents } = require('../services/notificationService')
 const mongoose = require('mongoose')
 const User = require('../models/User')
 
@@ -767,6 +768,17 @@ exports.createOrder = async (req, res) => {
       companyId,
       type: req.body.type || 'enduser',
     })
+    notifyAdminAndSuperAdmin(
+      'New order created',
+      `Order ${order.orderId} has been created. Please review.`,
+      'order_webhook',
+      order.orderId
+    ).catch((e) => console.warn('[OrderController] notifyAdminAndSuperAdmin failed:', e.message))
+    notifyBillingAgents(
+      'New order arrived – verify',
+      `Order ${order.orderId} has been placed. Please verify.`,
+      order.orderId
+    ).catch((e) => console.warn('[OrderController] notifyBillingAgents failed:', e.message))
     return res.status(201).json({ success: true, data: order })
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message })
@@ -1120,6 +1132,17 @@ exports.updateOrder = async (req, res) => {
       { $set: updateData },
       { new: true }
     ).populate('retailer', RETAILER_POPULATE_FIELDS).lean()
+
+    // Notify warehouse/delivery when billing is done (verify or completed)
+    const billingJustDone = (updateData.billingVerified === true || updateData.billingStatus === 'Completed') &&
+      !order.billingVerified && order.billingStatus !== 'Completed'
+    if (billingJustDone && updated?.orderId) {
+      notifyWarehouseAgents(
+        'Billing done – ready for dispatch',
+        `Order ${updated.orderId} verified. Please proceed with warehouse/delivery.`,
+        updated.orderId
+      ).catch((e) => console.warn('[OrderController] notifyWarehouseAgents failed:', e.message))
+    }
 
     // Fire-and-forget WhatsApp notifications (non-blocking)
     if (updateData.notifyBillingVerification === true)

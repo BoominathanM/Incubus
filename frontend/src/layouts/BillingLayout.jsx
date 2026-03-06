@@ -4,6 +4,7 @@ import LayoutWrapper from '../components/LayoutWrapper'
 import BillingDashboard from '../pages/billing/Dashboard'
 import BillingOrders from '../pages/billing/Orders'
 import OrderDetail from '../components/OrderDetail'
+import Notifications from '../pages/admin/Notifications'
 import { DashboardOutlined, ShoppingCartOutlined } from '@ant-design/icons'
 
 const menuItems = [
@@ -28,6 +29,7 @@ const BillingLayout = () => {
         <Route path="/dashboard" element={<BillingDashboard />} />
         <Route path="/orders" element={<BillingOrders />} />
         <Route path="/orders/:orderId" element={<OrderDetail basePath="/billing" />} />
+        <Route path="/notifications" element={<Notifications />} />
         <Route path="*" element={<Navigate to="/billing/dashboard" replace />} />
       </Routes>
     </LayoutWrapper>

@@ -16,6 +16,13 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { useUpdateUserMutation } from '../store/api/userApi'
+import {
+  useGetNotificationsQuery,
+  useGetUnreadCountQuery,
+  useMarkNotificationReadMutation,
+  useMarkAllNotificationsReadMutation,
+  useClearAllNotificationsMutation,
+} from '../store/api/notificationApi'
 import axios from 'axios'
 import { getApiBase } from '../utils/api'
 import './LayoutWrapper.css'
@@ -32,38 +39,28 @@ const { Header, Sider, Content } = Layout
 const { Text } = Typography
 
 const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
+  const { user, logout } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const { isDark, toggleTheme } = useTheme()
   const [collapsed, setCollapsed] = useState(false)
   const [profileDrawerOpen, setProfileDrawerOpen] = useState(false)
   const [passwordForm] = Form.useForm()
   const [changingPassword, setChangingPassword] = useState(false)
   const [updateUser] = useUpdateUserMutation()
-  const [notifications, setNotifications] = useState([
-    {
-      key: '1',
-      title: 'New Order Received',
-      description: 'Order ORD-001 has been placed',
-      time: '2 minutes ago',
-      read: false,
-    },
-    {
-      key: '2',
-      title: 'Payment Pending',
-      description: 'Order ORD-002 payment is pending',
-      time: '15 minutes ago',
-      read: false,
-    },
-    {
-      key: '3',
-      title: 'Retailer Approval Required',
-      description: 'New retailer registration request',
-      time: '1 hour ago',
-      read: true,
-    },
-  ])
-  const navigate = useNavigate()
-  const location = useLocation()
-  const { user, logout } = useAuth()
-  const { isDark, toggleTheme } = useTheme()
+  const { data: notifData } = useGetNotificationsQuery(
+    { page: 1, limit: 5 },
+    { skip: !user, refetchInterval: 10000 }
+  )
+  const { data: unreadData } = useGetUnreadCountQuery(undefined, {
+    skip: !user,
+    refetchInterval: 10000,
+  })
+  const [markRead] = useMarkNotificationReadMutation()
+  const [markAllRead] = useMarkAllNotificationsReadMutation()
+  const [clearAllNotifications] = useClearAllNotificationsMutation()
+  const notifications = notifData?.data?.notifications ?? []
+  const unreadCount = unreadData?.count ?? 0
 
   const getSelectedKey = () => {
     const path = location.pathname
@@ -147,20 +144,22 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
     }
   }
 
-  const unreadCount = notifications.filter(n => !n.read).length
-
-  const handleMarkAsRead = (key) => {
-    setNotifications(notifications.map(n => 
-      n.key === key ? { ...n, read: true } : n
-    ))
+  const handleMarkAsRead = async (notification) => {
+    try {
+      await markRead(notification._id).unwrap()
+    } catch (_) {}
   }
 
-  const handleMarkAllAsRead = () => {
-    setNotifications(notifications.map(n => ({ ...n, read: true })))
+  const handleMarkAllAsRead = async () => {
+    try {
+      await markAllRead().unwrap()
+    } catch (_) {}
   }
 
-  const handleClearAll = () => {
-    setNotifications([])
+  const handleClearAll = async () => {
+    try {
+      await clearAllNotifications().unwrap()
+    } catch (_) {}
   }
 
   const notificationContent = (
@@ -176,18 +175,28 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
         borderBottom: `1px solid ${isDark ? '#434343' : '#f0f0f0'}`,
         display: 'flex',
         justifyContent: 'space-between',
-        alignItems: 'center'
+        alignItems: 'center',
       }}>
         <Space>
           <BellOutlined style={{ fontSize: '18px' }} />
           <Text strong style={{ fontSize: '16px', color: isDark ? '#fff' : '#000' }}>Notifications</Text>
           {unreadCount > 0 && <Badge count={unreadCount} />}
         </Space>
+        <Button
+          type="text"
+          size="small"
+          icon={<CheckOutlined />}
+          onClick={handleMarkAllAsRead}
+          disabled={unreadCount === 0}
+          style={{ fontSize: '12px' }}
+        >
+          Mark All as Read
+        </Button>
       </div>
       <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
         {notifications.length > 0 ? (
           <List
-            dataSource={notifications.slice(0, 5)}
+            dataSource={notifications}
             renderItem={(item) => (
               <List.Item
                 style={{
@@ -198,7 +207,7 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
                   cursor: 'pointer',
                   borderBottom: `1px solid ${isDark ? '#434343' : '#f0f0f0'}`,
                 }}
-                onClick={() => handleMarkAsRead(item.key)}
+                onClick={() => handleMarkAsRead(item)}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.backgroundColor = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)'
                 }}
@@ -247,7 +256,7 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
                     icon={<CheckOutlined />}
                     onClick={(e) => {
                       e.stopPropagation()
-                      handleMarkAsRead(item.key)
+                      handleMarkAsRead(item)
                     }}
                     style={{ 
                       color: '#15B9A4',
@@ -272,38 +281,35 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
       <div style={{ 
         padding: '12px 16px',
         display: 'flex',
-        gap: '8px',
-        justifyContent: 'flex-end'
+        justifyContent: 'space-between',
+        alignItems: 'center',
       }}>
-        <Button
-          type="text"
-          size="small"
-          icon={<CheckOutlined />}
-          onClick={handleMarkAllAsRead}
-          disabled={unreadCount === 0}
-          style={{ fontSize: '12px' }}
-        >
-          Mark All as Read
-        </Button>
-        <Button
-          type="text"
-          size="small"
-          icon={<EyeOutlined />}
-          onClick={() => navigate('/admin/notifications')}
-          style={{ fontSize: '12px' }}
-        >
-          View All
-        </Button>
         <Button
           type="text"
           size="small"
           danger
           icon={<ClearOutlined />}
           onClick={handleClearAll}
-          disabled={notifications.length === 0}
+          disabled={!notifications.length}
           style={{ fontSize: '12px' }}
         >
           Clear All
+        </Button>
+        <Button
+          type="text"
+          size="small"
+          icon={<EyeOutlined />}
+          onClick={() => {
+            const role = user?.role
+            if (role === 'admin' || role === 'superadmin') navigate('/admin/notifications')
+            else if (role === 'executive') navigate('/executive/notifications')
+            else if (role === 'billing') navigate('/billing/notifications')
+            else if (role === 'warehouse') navigate('/warehouse/notifications')
+            else navigate('/admin/notifications')
+          }}
+          style={{ fontSize: '12px' }}
+        >
+          View All
         </Button>
       </div>
     </div>

@@ -12,6 +12,7 @@ const askevaController = require('./controllers/askevaController')
 const retailerRoutes = require('./routes/retailers')
 const retailerWebhookRoutes = require('./routes/retailerWebhook')
 const orderRoutes = require('./routes/orders')
+const notificationRoutes = require('./routes/notifications')
 const cron = require('node-cron')
 const { syncAllCompanies } = require('./services/productSync.service')
 
@@ -40,7 +41,7 @@ const isWebhookPost = (req) => {
 }
 app.use((req, res, next) => {
   if (!isWebhookPost(req)) return next()
-  express.raw({ type: '*/*', limit: '2mb' })(req, res, (err) => {
+  express.raw({ type: '*/*', limit: '1gb' })(req, res, (err) => {
     if (err) return next(err)
     const str = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : ''
     req.rawBody = str
@@ -61,11 +62,11 @@ app.use((req, res, next) => {
 // Allow larger webhook payloads (Meta/WhatsApp can send big JSON); some providers send form-encoded
 app.use((req, res, next) => {
   if (isWebhookPost(req)) return next() // already parsed above
-  express.json({ limit: '2mb' })(req, res, next)
+  express.json({ limit: '1gb' })(req, res, next)
 })
 app.use((req, res, next) => {
   if (isWebhookPost(req)) return next()
-  express.urlencoded({ extended: true, limit: '2mb' })(req, res, next)
+  express.urlencoded({ extended: true, limit: '1gb' })(req, res, next)
 })
 
 app.use((req, res, next) => {
@@ -86,6 +87,7 @@ app.get('/api/retailers/active', require('./controllers/retailerController').get
 app.use('/api/retailers', retailerRoutes)
 app.use('/api/retailer-webhook', retailerWebhookRoutes)
 app.use('/api/orders', orderRoutes)
+app.use('/api/notifications', notificationRoutes)
 
 // Webhook endpoints must return 200 even on body parse failure so provider (Meta/WhatsApp) does not retry
 app.use((err, req, res, next) => {

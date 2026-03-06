@@ -2,6 +2,7 @@ const mongoose = require('mongoose')
 const Retailer = require('../models/Retailer')
 const EventTemplateMapping = require('../models/EventTemplateMapping.model')
 const askevaService = require('../services/askeva.service')
+const { notifyAdminAndSuperAdmin, notifyUser } = require('../services/notificationService')
 const { validateFileType, uploadToCloudinary } = require('../utils/uploadCloudinary')
 const { generateRetailerId } = require('../utils/retailerId')
 const XLSX = require('xlsx')
@@ -242,7 +243,7 @@ async function list(req, res) {
 
     const withCreatedBy = list.map((r) => ({
       ...r,
-      createdBy: r.createdBy?.name || r.createdBy?.email || '—',
+      createdBy: r.createdBy?.name || r.createdBy?.email || 'WhatsApp',
       createdById: r.createdBy?._id?.toString() || null,
       createdAt: r.createdAt ? new Date(r.createdAt).toLocaleString() : '',
     }))
@@ -295,6 +296,14 @@ async function create(req, res) {
     body.retailerId = await generateRetailerId()
     if (!body.status) body.status = 'pending_approval'
     const retailer = await Retailer.create(body)
+    if (retailer.status === 'pending_approval') {
+      notifyAdminAndSuperAdmin(
+        'New retailer arrived – verify and approve',
+        `Retailer ${retailer.businessName || retailer.retailerId} registered. Please verify and approve.`,
+        'retailer_executive',
+        retailer.retailerId || retailer._id?.toString()
+      ).catch((e) => console.warn('[RetailerController] notifyAdminAndSuperAdmin failed:', e.message))
+    }
     const populated = await Retailer.findById(retailer._id).populate('createdBy', 'name email').lean()
     return res.status(201).json({ success: true, retailer: populated })
   } catch (err) {
@@ -372,6 +381,7 @@ async function approve(req, res) {
     if (r.status !== 'pending_approval') {
       return res.status(400).json({ success: false, message: 'Retailer is not pending approval' })
     }
+    const wasFromWebhook = !r.createdBy
     r.status = 'active'
     r.approvedAt = new Date()
     await r.save()
@@ -383,6 +393,25 @@ async function approve(req, res) {
       // Populate failed (e.g. deleted user ref); approval still succeeded
     }
     sendRetailerNotification(retailer, 'Approve Retailer', COMPANY_ID)
+    if (wasFromWebhook) {
+      notifyAdminAndSuperAdmin(
+        'Retailer from WhatsApp approved by executive',
+        `Retailer ${r.businessName || r.retailerId} (from WhatsApp) has been approved.`,
+        'retailer_webhook_executive',
+        r.retailerId || r._id?.toString()
+      ).catch((e) => console.warn('[RetailerController] notifyAdminAndSuperAdmin failed:', e.message))
+    }
+    if (r.createdBy) {
+      const approver = await require('../models/User').findById(req.user?.id, 'name').lean()
+      const approverName = approver?.name || (req.user?.role === 'superadmin' ? 'Super Admin' : 'Admin')
+      notifyUser(
+        r.createdBy,
+        `${approverName} approved your retailer request`,
+        `${approverName} approved your retailer ${r.businessName || r.retailerId}.`,
+        'retailer_approve',
+        r.retailerId || r._id?.toString()
+      ).catch((e) => console.warn('[RetailerController] notifyUser failed:', e.message))
+    }
     return res.json({ success: true, retailer })
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message || 'Approve failed' })
@@ -410,6 +439,17 @@ async function reject(req, res) {
       if (populated) retailer = populated
     } catch (_) {}
     sendRetailerNotification(retailer, 'Reject Retailer', COMPANY_ID)
+    if (r.createdBy) {
+      const rejector = await require('../models/User').findById(req.user?.id, 'name').lean()
+      const rejectorName = rejector?.name || (req.user?.role === 'superadmin' ? 'Super Admin' : 'Admin')
+      notifyUser(
+        r.createdBy,
+        `${rejectorName} rejected your retailer request`,
+        `${rejectorName} rejected your retailer ${r.businessName || r.retailerId}.`,
+        'retailer_reject',
+        r.retailerId || r._id?.toString()
+      ).catch((e) => console.warn('[RetailerController] notifyUser failed:', e.message))
+    }
     return res.json({ success: true, retailer })
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message || 'Reject failed' })
@@ -522,7 +562,7 @@ async function exportRetailers(req, res) {
       AltContactCountryCode: r.altContactCountryCode || '',
       AltContactNumber: r.altContactNumber || '',
       Status: r.status,
-      CreatedBy: r.createdBy?.name || r.createdBy?.email || '',
+      CreatedBy: r.createdBy?.name || r.createdBy?.email || 'WhatsApp',
       CreatedAt: r.createdAt ? new Date(r.createdAt).toISOString() : '',
     }))
     if (!rows.length) {
