@@ -279,30 +279,44 @@ export default function ImportRetailersModal({
       const importedCount = Number(result?.imported || 0)
       const errors = Array.isArray(result?.errors) ? result.errors : []
       const stats = summarizeImportErrors(errors)
+      const failedCount = stats.totalErrors
+      const totalProcessed = importedCount + failedCount
       reset()
       onCancel?.()
 
       if (importedCount > 0) {
         onSuccess?.({ imported: importedCount, errors })
-        const parts = [`${importedCount} retailer(s) imported successfully.`]
-        if (stats.duplicateTotal > 0) {
-          parts.push(
-            `Duplicates skipped: ${stats.duplicateTotal} (WhatsApp: ${stats.duplicateInFileWhatsApp + stats.duplicateInDbWhatsApp}, Email: ${stats.duplicateInFileEmail + stats.duplicateInDbEmail}).`
-          )
+        const reasonParts = [
+          stats.duplicateTotal > 0 ? `Duplicate: ${stats.duplicateTotal}` : null,
+          stats.mandatoryMissing > 0 ? `Missing mandatory: ${stats.mandatoryMissing}` : null,
+          (stats.totalErrors - stats.duplicateTotal - stats.mandatoryMissing) > 0
+            ? `Other issues: ${stats.totalErrors - stats.duplicateTotal - stats.mandatoryMissing}`
+            : null,
+        ].filter(Boolean)
+        const summary = [
+          `Total Imported: ${totalProcessed}`,
+          importedCount > 0 ? `Imported: ${importedCount}` : null,
+          failedCount > 0 ? `Failed: ${failedCount}` : null,
+        ].filter(Boolean).join('. ') + '.'
+        if (failedCount > 0) {
+          const msg = reasonParts.length ? `${summary} Reasons: ${reasonParts.join(', ')}.` : summary
+          message.warning(msg)
         }
-        if (stats.mandatoryMissing > 0) {
-          parts.push(`${stats.mandatoryMissing} row(s) skipped due to missing mandatory fields.`)
-        }
-        const remaining = stats.totalErrors - stats.duplicateTotal - stats.mandatoryMissing
-        if (remaining > 0) {
-          parts.push(`${remaining} row(s) skipped due to data issues.`)
-        }
-        parts.push(successMessageFragment)
-        message.success(parts.join(' '))
+        else message.success(`${summary} ${successMessageFragment}`.trim())
       } else {
         const errMsg = stats.totalErrors
-          ? `No rows imported. Duplicates: ${stats.duplicateTotal}. Missing mandatory: ${stats.mandatoryMissing}. Other issues: ${stats.totalErrors - stats.duplicateTotal - stats.mandatoryMissing}.`
-          : 'No rows imported. Check mapping and data.'
+          ? (() => {
+              const reasonParts = [
+                stats.duplicateTotal > 0 ? `Duplicate: ${stats.duplicateTotal}` : null,
+                stats.mandatoryMissing > 0 ? `Missing mandatory: ${stats.mandatoryMissing}` : null,
+                (stats.totalErrors - stats.duplicateTotal - stats.mandatoryMissing) > 0
+                  ? `Other issues: ${stats.totalErrors - stats.duplicateTotal - stats.mandatoryMissing}`
+                  : null,
+              ].filter(Boolean)
+              const base = `Total Imported: ${totalProcessed}. Failed: ${failedCount}.`
+              return reasonParts.length ? `${base} Reasons: ${reasonParts.join(', ')}.` : base
+            })()
+          : 'No rows imported.'
         message.warning(errMsg)
       }
       if (errors.length) console.warn('Import errors:', errors)
