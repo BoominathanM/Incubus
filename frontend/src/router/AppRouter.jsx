@@ -8,6 +8,14 @@ import BillingLayout from '../layouts/BillingLayout'
 import WarehouseLayout from '../layouts/WarehouseLayout'
 import ProtectedRoute from '../components/ProtectedRoute'
 
+const ROLE_HOME = {
+  superadmin: '/admin/dashboard',
+  admin: '/admin/dashboard',
+  executive: '/executive/dashboard',
+  billing: '/billing/dashboard',
+  warehouse: '/warehouse/dashboard',
+}
+
 export default function AppRouter() {
   const { user, loading } = useAuth()
 
@@ -54,22 +62,13 @@ export default function AppRouter() {
         path="/"
         element={
           user ? (
-            user.role === 'superadmin' || user.role === 'admin' ? (
-              <Navigate to="/admin/dashboard" replace />
-            ) : user.role === 'executive' ? (
-              <Navigate to="/executive/dashboard" replace />
-            ) : user.role === 'billing' ? (
-              <Navigate to="/billing/dashboard" replace />
-            ) : user.role === 'warehouse' ? (
-              <Navigate to="/warehouse/dashboard" replace />
-            ) : (
-              <Navigate to="/login" replace />
-            )
+            <Navigate to={ROLE_HOME[user.role] || '/login'} replace />
           ) : (
             <Navigate to="/login" replace />
           )
         }
       />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
 }
