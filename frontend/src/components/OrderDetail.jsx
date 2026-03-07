@@ -818,10 +818,11 @@ const OrderDetail = ({ basePath = '/admin' }) => {
 
       {/* ── Update Modal ──────────────────────────────────────────────────── */}
       <Modal
+        className="order-update-modal"
         title={
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', paddingRight: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', paddingRight: 44 }}>
             <span>{getModalTitle()}</span>
-            <Text strong style={{ color: 'inherit' }}>{orderData.orderId}</Text>
+            <Text strong style={{ color: 'inherit', marginRight: 6 }}>{orderData.orderId}</Text>
           </div>
         }
         open={updateModalVisible}

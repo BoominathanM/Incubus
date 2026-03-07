@@ -338,7 +338,14 @@ const AdminOrders = () => {
               const label = dateRange?.[0] && dateRange?.[1]
                 ? `${dateRange[0].format('YYYYMMDD')}-${dateRange[1].format('YYYYMMDD')}`
                 : dayjs().format('YYYYMMDD')
-              exportToExcel(rows, `Orders-${label}`)
+              const tabNameMap = {
+                all: 'All-Orders',
+                paid: 'Paid-Orders',
+                pending: 'Payment-Pending',
+                completed: 'Completed-Orders',
+              }
+              const tabFileName = tabNameMap[activeTab] || 'Orders'
+              exportToExcel(rows, `${tabFileName}-${label}`)
             }}
           >
             Export
