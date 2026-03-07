@@ -21,6 +21,22 @@ function toDigits(str) {
   return (str || '').replace(/\D/g, '')
 }
 
+function toOrderPaymentStatus(rawStatus) {
+  const status = String(rawStatus || '').trim().toLowerCase()
+  if (['captured', 'success', 'succeeded', 'paid'].includes(status)) return 'Success'
+  if (['failed', 'failure', 'declined'].includes(status)) return 'Failed'
+  return 'Pending'
+}
+
+function toPaymentAmount(amountObj) {
+  if (!amountObj || typeof amountObj !== 'object') return 0
+  const value = Number(amountObj.value || 0)
+  const offset = Number(amountObj.offset || 0)
+  if (!Number.isFinite(value) || value <= 0) return 0
+  if (!Number.isFinite(offset) || offset <= 0) return value
+  return value / offset
+}
+
 function normalizeKey(key) {
   return String(key || '').toLowerCase().replace(/[^a-z0-9]/g, '')
 }
@@ -923,11 +939,36 @@ exports.receiveRetailerWebhook = async (req, res) => {
           const firstContact = contacts[0]
           const from = firstContact ? toDigits(firstContact.wa_id) : ''
           const fromName = firstContact?.profile?.name || ''
+          const statuses = Array.isArray(value?.statuses) ? value.statuses : []
           const catalogId =
             value?.catalog_id || value?.catalogId ||
             body?.catalog_id || body?.catalogId || null
 
           const activeRetailer = from ? await findActiveRetailer(from) : null
+          for (const statusItem of statuses) {
+            const payment = statusItem?.payment || {}
+            const tx = payment?.transaction || {}
+            const referenceId = String(payment?.reference_id || '').trim()
+            if (!referenceId) continue
+            const recipientId = toDigits(statusItem?.recipient_id || from || '')
+            const txStatus = tx?.status || statusItem?.status || ''
+            const txTs = Number(tx?.updated_timestamp || tx?.created_timestamp || 0)
+            const parsedPaymentDate = Number.isFinite(txTs) && txTs > 0 ? new Date(txTs * 1000) : null
+            const updateFields = {
+              referenceId,
+              paymentStatus: toOrderPaymentStatus(txStatus),
+              transactionId: String(tx?.id || tx?.pg_transaction_id || referenceId || '').trim(),
+              paymentMode: tx?.method?.type ? String(tx.method.type).toUpperCase() : 'WhatsApp Pay',
+              paymentDate: parsedPaymentDate,
+              amount: toPaymentAmount(payment?.amount || tx?.amount),
+            }
+            const updatedOrder = await updatePendingOrderPayment(companyId, recipientId, updateFields)
+            if (updatedOrder) {
+              console.log('[RetailerWebhook] Status payment applied to order:', updatedOrder.orderId, '| referenceId:', referenceId)
+            } else {
+              console.log('[RetailerWebhook] Status payment received but no pending order match for referenceId:', referenceId)
+            }
+          }
 
           try {
             const catalogPayloadToStore = (body && Object.keys(body).length > 0) ? body : (req.rawBody ? { _raw: String(req.rawBody).slice(0, 50000) } : {})

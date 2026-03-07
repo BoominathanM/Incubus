@@ -298,6 +298,22 @@ function getCompanyId(req) {
   return req.user?.companyId ?? COMPANY_ID
 }
 
+function toOrderPaymentStatus(rawStatus) {
+  const status = String(rawStatus || '').trim().toLowerCase()
+  if (['captured', 'success', 'succeeded', 'paid'].includes(status)) return 'Success'
+  if (['failed', 'failure', 'declined'].includes(status)) return 'Failed'
+  return 'Pending'
+}
+
+function toPaymentAmount(amountObj) {
+  if (!amountObj || typeof amountObj !== 'object') return 0
+  const value = Number(amountObj.value || 0)
+  const offset = Number(amountObj.offset || 0)
+  if (!Number.isFinite(value) || value <= 0) return 0
+  if (!Number.isFinite(offset) || offset <= 0) return value
+  return value / offset
+}
+
 function normalizeUrl(url) {
   if (!url) return 'https://backend.askeva.io'
   try {
@@ -982,7 +998,7 @@ exports.handleWebhook = async (req, res) => {
 }
 
 async function processWebhookPayload(companyId, body) {
-  const { handleWebhookOrderEvent } = require('./orderController')
+  const { handleWebhookOrderEvent, updatePendingOrderPayment } = require('./orderController')
 
   // Support both direct Meta payload and wrapped payloads
   const entries = body?.entry || body?.data?.entry || (body?.messages ? [{ changes: [{ value: body }] }] : [])
@@ -1179,6 +1195,29 @@ async function processWebhookPayload(companyId, body) {
 
       if (value.statuses?.length) {
         console.log(`[Webhook] ${value.statuses.length} status update(s) received`)
+        for (const statusItem of value.statuses) {
+          const payment = statusItem?.payment || {}
+          const tx = payment?.transaction || {}
+          const referenceId = String(payment?.reference_id || '').trim()
+          if (!referenceId) continue
+          const fromForPayment = String(statusItem?.recipient_id || '').replace(/\D/g, '')
+          const txStatus = tx?.status || statusItem?.status || ''
+          const txTs = Number(tx?.updated_timestamp || tx?.created_timestamp || 0)
+          const parsedPaymentDate = Number.isFinite(txTs) && txTs > 0 ? new Date(txTs * 1000) : null
+          const updatedOrder = await updatePendingOrderPayment(companyId, fromForPayment, {
+            referenceId,
+            paymentStatus: toOrderPaymentStatus(txStatus),
+            transactionId: String(tx?.id || tx?.pg_transaction_id || referenceId || '').trim(),
+            paymentMode: tx?.method?.type ? String(tx.method.type).toUpperCase() : 'WhatsApp Pay',
+            paymentDate: parsedPaymentDate,
+            amount: toPaymentAmount(payment?.amount || tx?.amount),
+          })
+          if (updatedOrder) {
+            console.log('[Webhook] Status payment applied to order:', updatedOrder.orderId, '| referenceId:', referenceId)
+          } else {
+            console.log('[Webhook] Status payment received but no pending order match for referenceId:', referenceId)
+          }
+        }
       }
     }
   }

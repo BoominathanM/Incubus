@@ -365,33 +365,6 @@ async function updatePendingOrderPayment(companyId, from, extraFields) {
 }
 
 /**
- * Update the most recent pending order (by from) with payment fields.
- * When payment is received later, order is updated by matching from + paymentStatus Pending.
- */
-async function updatePendingOrderPayment(companyId, from, extraFields) {
-  const normalizedFrom = String(from || '').replace(/\D/g, '')
-  const cutoff = new Date(Date.now() - ORDER_CORRELATION_CUTOFF_MS)
-  const order = await OrderManagement.findOne({
-    companyId,
-    from: normalizedFrom,
-    paymentStatus: 'Pending',
-    createdAt: { $gte: cutoff },
-  })
-    .sort({ createdAt: -1 })
-    .lean()
-  if (!order) return null
-  const update = {}
-  if (extraFields.paymentStatus != null) update.paymentStatus = extraFields.paymentStatus
-  if (extraFields.paymentMode != null) update.paymentMode = extraFields.paymentMode
-  if (extraFields.transactionId != null) update.transactionId = extraFields.transactionId
-  if (extraFields.paymentDate != null) update.paymentDate = extraFields.paymentDate
-  if (extraFields.amount != null) update.amount = extraFields.amount
-  if (Object.keys(update).length === 0) return order
-  await OrderManagement.updateOne({ orderId: order.orderId }, { $set: update })
-  return OrderManagement.findOne({ orderId: order.orderId }).lean()
-}
-
-/**
  * Handle webhook order event: create ONE order per user flow.
  * - order (catalog): CREATE new order (canonical order placement)
  * - interactive (nfm_reply): UPDATE existing order with flow data; NEVER create new order
