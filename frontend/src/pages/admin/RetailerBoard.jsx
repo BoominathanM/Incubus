@@ -389,7 +389,14 @@ const RetailerBoard = () => {
     }
     try {
       const blob = await triggerExport(listParams).unwrap()
-      downloadExportBlob(blob)
+      const tabLabelMap = {
+        requests: 'Approval-Requests',
+        approved: 'Approved-Retailers',
+        rejected: 'Rejected-Retailers',
+      }
+      const tabLabel = tabLabelMap[activeTab] || 'Retailers'
+      const fileName = `${tabLabel}-${dayjs().format('YYYYMMDD')}.xlsx`
+      downloadExportBlob(blob, fileName)
       message.success('Export downloaded')
     } catch (e) {
       message.error(e?.data?.message || e?.message || 'Export failed')

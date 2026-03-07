@@ -29,6 +29,7 @@ import {
   downloadSampleBlob,
 } from '../../store/api/retailerApi'
 import { getUploadErrorMessage } from '../../utils/uploadErrors'
+import dayjs from 'dayjs'
 
 const { Title } = Typography
 const { Link } = Typography
@@ -278,7 +279,14 @@ const CustomerBoard = () => {
     }
     try {
       const blob = await triggerExport(listParams).unwrap()
-      downloadExportBlob(blob)
+      const tabLabelMap = {
+        requests: 'My-Requests',
+        approved: 'Existing-Customers',
+        rejected: 'Rejected',
+      }
+      const tabLabel = tabLabelMap[activeTab] || 'Customers'
+      const fileName = `${tabLabel}-${dayjs().format('YYYYMMDD')}.xlsx`
+      downloadExportBlob(blob, fileName)
       message.success('Export downloaded')
     } catch (e) {
       message.error(e?.data?.message || e?.message || 'Export failed')
