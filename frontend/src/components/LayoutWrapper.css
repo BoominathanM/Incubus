@@ -113,6 +113,25 @@
 
 .layout-wrapper .content {
   overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Ensure wide tables remain usable on small screens */
+.layout-wrapper .content .ant-table-wrapper {
+  width: 100%;
+}
+
+.layout-wrapper .content .ant-table-content {
+  overflow-x: auto;
+}
+
+/* Keep tabs usable on smaller widths */
+.layout-wrapper .content .ant-tabs-nav-wrap {
+  overflow-x: auto;
+}
+
+.layout-wrapper .content .ant-tabs-nav-list {
+  flex-wrap: nowrap;
 }
 
 @media (max-width: 1200px) {
@@ -130,14 +149,6 @@
 }
 
 @media (max-width: 768px) {
-  .layout-wrapper .sidebar {
-    position: fixed;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    z-index: 1000;
-  }
-
   .layout-wrapper .content {
     margin: 12px;
     padding: 16px;
@@ -151,6 +162,16 @@
   .layout-wrapper .header .ant-space {
     flex-wrap: wrap;
     gap: 8px;
+  }
+
+  .layout-wrapper .content .ant-card-head-wrapper {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .layout-wrapper .content .ant-card-extra {
+    margin-inline-start: 0;
+    padding: 0;
   }
 
   .layout-wrapper .logo {

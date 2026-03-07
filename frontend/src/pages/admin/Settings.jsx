@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Tabs, Card, Table, Tag, Button, Space, Input, Modal, Form, Select, message, Typography, List, Badge, Empty, Dropdown } from 'antd'
+import { Tabs, Card, Table, Tag, Button, Space, Input, Modal, Form, Select, message, Typography, List, Badge, Empty, Dropdown, Grid } from 'antd'
 import Breadcrumbs from '../../components/Breadcrumbs'
 import PhoneInput from '../../components/PhoneInput'
 import { useAuth } from '../../context/AuthContext'
@@ -26,11 +26,14 @@ import {
 const { Title } = Typography
 const { Option } = Select
 const { TextArea } = Input
+const { useBreakpoint } = Grid
 
 const statusDisplay = (s) => (s === 'active' ? 'Active' : 'Inactive')
 const ROLE_LABELS = { admin: 'Admin', executive: 'Executive Agent', billing: 'Billing Agent', warehouse: 'Warehouse & Delivery Agent', superadmin: 'Super Admin' }
 
 const Settings = () => {
+  const screens = useBreakpoint()
+  const isSmallScreen = !screens.md
   const { user: currentUser } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'users')
@@ -342,7 +345,7 @@ const Settings = () => {
               prefix={<SearchOutlined />}
               value={userSearchText}
               onChange={(e) => setUserSearchText(e.target.value)}
-              style={{ width: '100%', maxWidth: 300, minWidth: 200 }}
+              style={{ width: '100%', maxWidth: 300, minWidth: isSmallScreen ? undefined : 200 }}
             />
             <Button
               type="primary"
@@ -361,7 +364,9 @@ const Settings = () => {
             columns={userColumns}
             dataSource={filteredUsers}
             loading={usersLoading}
-            pagination={{ pageSize: 10 }}
+            pagination={{ pageSize: 10, responsive: true, size: isSmallScreen ? 'small' : 'default' }}
+            size={isSmallScreen ? 'small' : 'middle'}
+            scroll={{ x: 'max-content' }}
           />
         </div>
       ),
@@ -388,7 +393,7 @@ const Settings = () => {
             <Input
               placeholder="Search notifications"
               prefix={<SearchOutlined />}
-              style={{ width: '100%', maxWidth: 300, minWidth: 200 }}
+              style={{ width: '100%', maxWidth: 300, minWidth: isSmallScreen ? undefined : 200 }}
             />
             <Button
               type="primary"

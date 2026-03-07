@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Tabs, Table, Tag, Button, Space, Input, Select, Typography, Modal, Form, DatePicker, message, Dropdown, Drawer, Badge } from 'antd'
+import { Tabs, Table, Tag, Button, Space, Input, Select, Typography, Modal, Form, DatePicker, message, Dropdown, Drawer, Badge, Grid } from 'antd'
 import Breadcrumbs from '../../components/Breadcrumbs'
 import {
   SearchOutlined,
@@ -17,6 +17,7 @@ import { exportToExcel, fmtDate } from '../../utils/exportToExcel'
 const { Title } = Typography
 const { Option } = Select
 const { RangePicker } = DatePicker
+const { useBreakpoint } = Grid
 
 const TAB_KEYS = ['all', 'paid', 'pending', 'completed']
 
@@ -32,6 +33,8 @@ const EMPTY_FILTERS = {
 }
 
 const AdminOrders = () => {
+  const screens = useBreakpoint()
+  const isSmallScreen = !screens.md
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const tabParam = searchParams.get('tab')
@@ -256,7 +259,9 @@ const AdminOrders = () => {
     columns,
     dataSource: filteredOrders.map((o) => ({ ...o, key: o._id })),
     loading: isLoading || isFetching,
-    pagination: { pageSize: 10 },
+    pagination: { pageSize: 10, responsive: true, size: isSmallScreen ? 'small' : 'default' },
+    size: isSmallScreen ? 'small' : 'middle',
+    scroll: { x: 'max-content' },
     onRow: (record) => ({
       onClick: () => navigate(`/admin/orders/${record.orderId}`),
       style: { cursor: 'pointer' },
@@ -290,7 +295,7 @@ const AdminOrders = () => {
           <Input
             placeholder="Search by Order ID or Name"
             prefix={<SearchOutlined />}
-            style={{ width: 280 }}
+            style={{ width: isSmallScreen ? '100%' : 280, minWidth: isSmallScreen ? undefined : 220 }}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             allowClear
@@ -411,7 +416,7 @@ const AdminOrders = () => {
         title="Filter Orders"
         open={filterDrawerOpen}
         onClose={() => { setFilterDrawerOpen(false); setTempFilters({ ...appliedFilters }) }}
-        width={360}
+        width={isSmallScreen ? '100%' : 360}
         footer={
           <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
             <Button onClick={handleResetFilters}>Reset All</Button>

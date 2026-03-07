@@ -18,6 +18,7 @@ import {
   Spin,
   Alert,
   Dropdown,
+  Grid,
 } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -53,6 +54,7 @@ import {
 
 const { Title, Text } = Typography
 const { Option } = Select
+const { useBreakpoint } = Grid
 
 const DEFAULT_BACKEND_URL = 'https://backend.askeva.io'
 
@@ -89,6 +91,8 @@ const TEMPLATE_FIELD_OPTIONS = [
 ]
 
 const WhatsAppIntegration = () => {
+  const screens = useBreakpoint()
+  const isSmallScreen = !screens.md
   const isDarkTheme = typeof document !== 'undefined' && document.body.classList.contains('dark-theme')
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('configuration')
@@ -619,6 +623,8 @@ const WhatsAppIntegration = () => {
             <Table
               columns={templateColumns}
               dataSource={templates.map((t) => ({ ...t, key: t._id }))}
+              size={isSmallScreen ? 'small' : 'middle'}
+              scroll={{ x: 'max-content' }}
               pagination={{
                 current: templatePage,
                 pageSize: templatePageSize,
@@ -680,6 +686,8 @@ const WhatsAppIntegration = () => {
             <Table
               columns={eventMappingColumns}
               dataSource={eventMappings}
+              size={isSmallScreen ? 'small' : 'middle'}
+              scroll={{ x: 'max-content' }}
               pagination={{
                 total: eventMappings.length,
                 pageSize: 10,
@@ -732,7 +740,7 @@ const WhatsAppIntegration = () => {
         />
       )}
       <Card style={{ marginBottom: 24 }}>
-        <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }}>
+        <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
           <Space>
             <Button
               icon={<ArrowLeftOutlined />}
@@ -742,7 +750,7 @@ const WhatsAppIntegration = () => {
             </Button>
           </Space>
         </Space>
-        <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }}>
+        <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
           <Space>
             <MessageOutlined style={{ fontSize: '24px', color: '#15B9A4' }} />
             <Title level={2} style={{ margin: 0, color: '#15B9A4' }}>
@@ -785,7 +793,7 @@ const WhatsAppIntegration = () => {
           setSelectedTemplate(null)
           setEditingMappingId(null)
         }}
-        width={800}
+        width={isSmallScreen ? '95%' : 800}
         okText="Save"
         confirmLoading={saveMappingLoading}
         styles={{ body: { maxHeight: '70vh', overflowY: 'auto' } }}

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Table, Tag, Button, Space, Input, DatePicker, Typography, Dropdown, Card, message, Drawer, Select, Badge } from 'antd'
+import { Table, Tag, Button, Space, Input, DatePicker, Typography, Dropdown, Card, message, Drawer, Select, Badge, Grid } from 'antd'
 import Breadcrumbs from '../../components/Breadcrumbs'
 import { SearchOutlined, EyeOutlined, MoreOutlined, ExportOutlined, FilterOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
@@ -10,6 +10,7 @@ import { exportToExcel, fmtDate } from '../../utils/exportToExcel'
 const { Title } = Typography
 const { RangePicker } = DatePicker
 const { Option } = Select
+const { useBreakpoint } = Grid
 
 const EMPTY_FILTERS = {
   type: undefined,
@@ -21,6 +22,8 @@ const EMPTY_FILTERS = {
 }
 
 const WarehouseOrders = () => {
+  const screens = useBreakpoint()
+  const isSmallScreen = !screens.md
   const navigate = useNavigate()
   const [searchText, setSearchText] = useState('')
   const [dateRange, setDateRange] = useState(null)
@@ -179,7 +182,7 @@ const WarehouseOrders = () => {
             <Input
               placeholder="Search by Order ID or Name"
               prefix={<SearchOutlined />}
-              style={{ width: 260 }}
+              style={{ width: isSmallScreen ? '100%' : 260, minWidth: isSmallScreen ? undefined : 220 }}
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
               allowClear
@@ -227,7 +230,9 @@ const WarehouseOrders = () => {
           columns={columns}
           dataSource={filteredOrders.map((o) => ({ ...o, key: o._id }))}
           loading={isLoading || isFetching}
-          pagination={{ pageSize: 10 }}
+          pagination={{ pageSize: 10, responsive: true, size: isSmallScreen ? 'small' : 'default' }}
+          size={isSmallScreen ? 'small' : 'middle'}
+          scroll={{ x: 'max-content' }}
           onRow={(record) => ({
             onClick: () => navigate(`/warehouse/orders/${record.orderId}`),
             style: { cursor: 'pointer' },
@@ -240,7 +245,7 @@ const WarehouseOrders = () => {
         title="Filter Orders"
         open={filterDrawerOpen}
         onClose={() => { setFilterDrawerOpen(false); setTempFilters({ ...appliedFilters }) }}
-        width={360}
+        width={isSmallScreen ? '100%' : 360}
         footer={
           <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
             <Button onClick={handleResetFilters}>Reset All</Button>

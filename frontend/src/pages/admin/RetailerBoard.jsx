@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react'
-import { Tabs, Table, Tag, Button, Space, Input, Modal, Form, Select, message, Typography, Upload, Row, Col, DatePicker, Alert, Dropdown, Tooltip } from 'antd'
+import { Tabs, Table, Tag, Button, Space, Input, Modal, Form, Select, message, Typography, Upload, Row, Col, DatePicker, Alert, Dropdown, Tooltip, Grid } from 'antd'
 import {
   SearchOutlined,
   PlusOutlined,
@@ -40,6 +40,7 @@ const { Title } = Typography
 const { Option } = Select
 const { RangePicker } = DatePicker
 const { Link } = Typography
+const { useBreakpoint } = Grid
 
 const ALLOWED_UPLOAD_ACCEPT = '.pdf,.jpg,.jpeg,.png'
 const STATUS_DISPLAY = {
@@ -51,6 +52,8 @@ const STATUS_DISPLAY = {
 }
 
 const RetailerBoard = () => {
+  const screens = useBreakpoint()
+  const isSmallScreen = !screens.md
   const [activeTab, setActiveTab] = useState('requests')
   const [searchText, setSearchText] = useState('')
   const [dateRange, setDateRange] = useState(null)
@@ -432,7 +435,9 @@ const RetailerBoard = () => {
           columns={requestColumns}
           dataSource={retailers}
           loading={listLoading}
-          pagination={{ pageSize: 10 }}
+          pagination={{ pageSize: 10, responsive: true, size: isSmallScreen ? 'small' : 'default' }}
+          size={isSmallScreen ? 'small' : 'middle'}
+          scroll={{ x: 'max-content' }}
           onRow={(record) => ({
             onClick: () => openViewRetailer(record),
             style: { cursor: 'pointer' },
@@ -449,7 +454,9 @@ const RetailerBoard = () => {
           columns={approvedColumns}
           dataSource={retailers}
           loading={listLoading}
-          pagination={{ pageSize: 10 }}
+          pagination={{ pageSize: 10, responsive: true, size: isSmallScreen ? 'small' : 'default' }}
+          size={isSmallScreen ? 'small' : 'middle'}
+          scroll={{ x: 'max-content' }}
           onRow={(record) => ({
             onClick: () => openViewRetailer(record),
             style: { cursor: 'pointer' },
@@ -466,7 +473,8 @@ const RetailerBoard = () => {
           columns={rejectedColumns}
           dataSource={retailers}
           loading={listLoading}
-          pagination={{ pageSize: 10 }}
+          pagination={{ pageSize: 10, responsive: true, size: isSmallScreen ? 'small' : 'default' }}
+          size={isSmallScreen ? 'small' : 'middle'}
           scroll={{ x: 'max-content' }}
           onRow={(record) => ({
             onClick: () => openViewRetailer(record),
