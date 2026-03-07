@@ -138,9 +138,11 @@ async function getActiveRetailers(req, res) {
 
 const MANDATORY_IMPORT_COLUMNS = [
   'businessName',
+  'storeName',
   'contactPerson',
   'whatsappCountryCode',
   'whatsappNumber',
+  'email',
   'gst',
   'pan',
   'street1',
@@ -286,9 +288,17 @@ async function getById(req, res) {
 async function create(req, res) {
   try {
     const body = { ...req.body }
+    const storeName = (body.storeName || '').trim()
     const whatsappCountryCode = (body.whatsappCountryCode || '').trim() || '+91'
     const whatsappNumber = (body.whatsappNumber || '').trim()
     const email = (body.email || '').trim().toLowerCase()
+
+    if (!storeName) {
+      return res.status(400).json({ success: false, message: 'Store Name is required.' })
+    }
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email is required.' })
+    }
 
     const existingByWhatsApp = await Retailer.findOne({
       whatsappCountryCode,
@@ -303,6 +313,9 @@ async function create(req, res) {
         return res.status(400).json({ success: false, message: 'A retailer with this email already exists.' })
       }
     }
+
+    body.storeName = storeName
+    body.email = email
 
     if (req.user?.role && ['admin', 'superadmin', 'executive'].includes(req.user.role)) {
       body.createdBy = req.user.id

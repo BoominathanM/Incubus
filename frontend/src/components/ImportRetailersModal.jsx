@@ -5,9 +5,11 @@ import * as XLSX from 'xlsx'
 
 const MANDATORY_FIELDS = [
   'businessName',
+  'storeName',
   'contactPerson',
   'whatsappCountryCode',
   'whatsappNumber',
+  'email',
   'gst',
   'pan',
   'street1',
@@ -19,11 +21,11 @@ const MANDATORY_FIELDS = [
 
 const APP_FIELD_OPTIONS = [
   { value: 'businessName', label: <>Business Name <span style={{ color: '#ff4d4f' }}>*</span></> },
-  { value: 'storeName', label: 'Store Name' },
+  { value: 'storeName', label: <>Store Name <span style={{ color: '#ff4d4f' }}>*</span></> },
   { value: 'contactPerson', label: <>Contact Person <span style={{ color: '#ff4d4f' }}>*</span></> },
   { value: 'whatsappCountryCode', label: <>WhatsApp Country Code <span style={{ color: '#ff4d4f' }}>*</span></> },
   { value: 'whatsappNumber', label: <>WhatsApp Number <span style={{ color: '#ff4d4f' }}>*</span></> },
-  { value: 'email', label: 'Email' },
+  { value: 'email', label: <>Email <span style={{ color: '#ff4d4f' }}>*</span></> },
   { value: 'gst', label: <>GST Number <span style={{ color: '#ff4d4f' }}>*</span></> },
   { value: 'pan', label: <>PAN Number <span style={{ color: '#ff4d4f' }}>*</span></> },
   { value: 'street1', label: <>Street 1 <span style={{ color: '#ff4d4f' }}>*</span></> },
@@ -39,9 +41,11 @@ const APP_FIELD_OPTIONS = [
 
 const FIELD_LABELS = {
   businessName: 'Business Name',
+  storeName: 'Store Name',
   contactPerson: 'Contact Person',
   whatsappCountryCode: 'WhatsApp Country Code',
   whatsappNumber: 'WhatsApp Number',
+  email: 'Email',
   gst: 'GST Number',
   pan: 'PAN Number',
   street1: 'Street 1',
@@ -53,9 +57,11 @@ const FIELD_LABELS = {
 
 const MANDATORY_SOURCE_HEADERS = new Set([
   'businessname',
+  'storename',
   'contactperson',
   'whatsappcountrycode',
   'whatsappnumber',
+  'email',
   'gst',
   'pan',
   'street1',
@@ -374,7 +380,7 @@ export default function ImportRetailersModal({
       {step === 'upload' && (
         <>
           <p style={{ marginBottom: 12 }}>
-            Upload a file, then map each column to the correct field. Mandatory fields: Business Name, Contact Person, WhatsApp Country Code & Number, GST, PAN, Street1, City, District, State, Pincode.
+            Upload a file, then map each column to the correct field. Mandatory fields: Business Name, Store Name, Contact Person, WhatsApp Country Code & Number, Email, GST, PAN, Street1, City, District, State, Pincode.
           </p>
           <Upload.Dragger
             maxCount={1}

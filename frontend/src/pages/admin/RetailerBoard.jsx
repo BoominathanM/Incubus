@@ -502,8 +502,8 @@ const RetailerBoard = () => {
       <Form.Item name="businessName" label="Business Name" rules={[{ required: true }]} style={formItemStyle}>
         <Input placeholder="Business / company name" />
       </Form.Item>
-      <Form.Item name="storeName" label="Store Name" style={formItemStyle}>
-        <Input placeholder="Store / outlet name (optional)" />
+      <Form.Item name="storeName" label="Store Name" rules={[{ required: true, message: 'Store Name is required' }]} style={formItemStyle}>
+        <Input placeholder="Store / outlet name" />
       </Form.Item>
       <Form.Item name="contactPerson" label="Contact Person Name" rules={[{ required: true }]} style={formItemStyle}>
         <Input />
@@ -514,7 +514,15 @@ const RetailerBoard = () => {
       <div style={formItemStyle}>
         <PhoneInput countryCodeName="altContactCountryCode" numberName="altContactNumber" label="Alternative Contact Number" required={false} />
       </div>
-      <Form.Item name="email" label="Email ID" style={formItemStyle}>
+      <Form.Item
+        name="email"
+        label="Email ID"
+        rules={[
+          { required: true, message: 'Email is required' },
+          { type: 'email', message: 'Enter a valid email' },
+        ]}
+        style={formItemStyle}
+      >
         <Input type="email" />
       </Form.Item>
       <Row gutter={12} style={{ marginBottom: 20 }}>
