@@ -86,3 +86,42 @@ exports.changePassword = async (req, res) => {
     res.status(500).json({ success: false, message: err.message || 'Failed to change password' })
   }
 }
+
+/** Change password from login screen using email + current password verification. */
+exports.changePasswordByEmail = async (req, res) => {
+  try {
+    const { email, currentPassword, newPassword, confirmNewPassword } = req.body
+    const emailLower = String(email || '').trim().toLowerCase()
+
+    if (!emailLower || !currentPassword || !newPassword || !confirmNewPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email, current password, new password and confirm new password are required',
+      })
+    }
+    if (newPassword !== confirmNewPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password and confirm new password do not match',
+      })
+    }
+
+    const user = await User.findOne({ email: emailLower })
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found for this email' })
+    }
+
+    const isMatch = await user.comparePassword(currentPassword)
+    if (!isMatch) {
+      return res.status(401).json({ success: false, message: 'Current password is incorrect' })
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10)
+    await user.save()
+
+    return res.json({ success: true, message: 'Password changed successfully' })
+  } catch (err) {
+    console.error('Change password by email error:', err)
+    return res.status(500).json({ success: false, message: err.message || 'Failed to change password' })
+  }
+}
