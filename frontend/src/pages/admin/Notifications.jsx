@@ -102,6 +102,7 @@ const Notifications = () => {
         style={{ marginBottom: 16, maxWidth: 400 }}
         value={searchText}
         onChange={(e) => setSearchText(e.target.value)}
+        allowClear
       />
       {isLoading ? (
         <div style={{ padding: 40, textAlign: 'center' }}>Loading...</div>

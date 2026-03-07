@@ -69,6 +69,36 @@ function canonicalHeader(value) {
   return String(value || '').replace(/[^a-z0-9]/gi, '').toLowerCase()
 }
 
+function summarizeImportErrors(errors = []) {
+  const summary = {
+    duplicateInFileWhatsApp: 0,
+    duplicateInFileEmail: 0,
+    duplicateInDbWhatsApp: 0,
+    duplicateInDbEmail: 0,
+    mandatoryMissing: 0,
+    other: 0,
+  }
+
+  for (const err of errors) {
+    const msg = String(err?.message || '').toLowerCase()
+    if (msg.includes('duplicate whatsapp number in file')) summary.duplicateInFileWhatsApp += 1
+    else if (msg.includes('duplicate email in file')) summary.duplicateInFileEmail += 1
+    else if (msg.includes('whatsapp number already exists')) summary.duplicateInDbWhatsApp += 1
+    else if (msg.includes('email already exists')) summary.duplicateInDbEmail += 1
+    else if (msg.includes('missing mandatory')) summary.mandatoryMissing += 1
+    else summary.other += 1
+  }
+
+  summary.duplicateTotal =
+    summary.duplicateInFileWhatsApp +
+    summary.duplicateInFileEmail +
+    summary.duplicateInDbWhatsApp +
+    summary.duplicateInDbEmail
+
+  summary.totalErrors = errors.length
+  return summary
+}
+
 const AUTO_MANAGED_SOURCE_HEADERS = new Set([
   'status',
   'createdby',
@@ -246,20 +276,36 @@ export default function ImportRetailersModal({
       formData.append('mapping', JSON.stringify(mapping))
       formData.append('file', importFile)
       const result = await triggerImport(formData).unwrap()
+      const importedCount = Number(result?.imported || 0)
+      const errors = Array.isArray(result?.errors) ? result.errors : []
+      const stats = summarizeImportErrors(errors)
       reset()
       onCancel?.()
-      if (result.imported > 0) {
-        onSuccess?.({ imported: result.imported, errors: result.errors })
-        message.success(
-          `${result.imported} retailer(s) imported. ${successMessageFragment}${result.errors?.length ? ` ${result.errors.length} row(s) had errors.` : ''}`
-        )
+
+      if (importedCount > 0) {
+        onSuccess?.({ imported: importedCount, errors })
+        const parts = [`${importedCount} retailer(s) imported successfully.`]
+        if (stats.duplicateTotal > 0) {
+          parts.push(
+            `Duplicates skipped: ${stats.duplicateTotal} (WhatsApp: ${stats.duplicateInFileWhatsApp + stats.duplicateInDbWhatsApp}, Email: ${stats.duplicateInFileEmail + stats.duplicateInDbEmail}).`
+          )
+        }
+        if (stats.mandatoryMissing > 0) {
+          parts.push(`${stats.mandatoryMissing} row(s) skipped due to missing mandatory fields.`)
+        }
+        const remaining = stats.totalErrors - stats.duplicateTotal - stats.mandatoryMissing
+        if (remaining > 0) {
+          parts.push(`${remaining} row(s) skipped due to data issues.`)
+        }
+        parts.push(successMessageFragment)
+        message.success(parts.join(' '))
       } else {
-        const errMsg = result.errors?.length
-          ? `No rows imported. ${result.errors.length} row(s) had errors (check mandatory fields and duplicate WhatsApp/email).`
+        const errMsg = stats.totalErrors
+          ? `No rows imported. Duplicates: ${stats.duplicateTotal}. Missing mandatory: ${stats.mandatoryMissing}. Other issues: ${stats.totalErrors - stats.duplicateTotal - stats.mandatoryMissing}.`
           : 'No rows imported. Check mapping and data.'
         message.warning(errMsg)
       }
-      if (result.errors?.length) console.warn('Import errors:', result.errors)
+      if (errors.length) console.warn('Import errors:', errors)
     } catch (e) {
       message.error('Import failed. Please verify mapping and data, then try again.')
       console.error('Import error:', e?.data || e)

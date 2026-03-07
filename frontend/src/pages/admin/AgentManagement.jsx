@@ -257,6 +257,7 @@ const AgentManagement = () => {
             prefix={<SearchOutlined />}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
+            allowClear
             style={{ width: '100%', maxWidth: 300, minWidth: 200 }}
           />
           <Button

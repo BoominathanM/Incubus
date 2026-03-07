@@ -22,11 +22,36 @@ const PhoneInput = ({
   numberProps = {},
   defaultCountryCode = DEFAULT_COUNTRY_CODE,
 }) => {
+  const form = Form.useFormInstance()
   const { data, isSuccess } = useGetCountryCodesQuery()
   const countryCodes = isSuccess && data?.success && Array.isArray(data.countryCodes) && data.countryCodes.length > 0
     ? data.countryCodes
     : FALLBACK_COUNTRY_CODES
   const defaultCode = data?.defaultCode || DEFAULT_COUNTRY_CODE
+  const selectedCountryCode = Form.useWatch(countryCodeName, form)
+  const activeCode = selectedCountryCode || defaultCountryCode || defaultCode
+  const selectedCountry = countryCodes.find((c) => c.code === activeCode)
+  const minDigits = selectedCountry?.min
+  const maxDigits = selectedCountry?.max
+
+  const numberRules = []
+  if (required) {
+    numberRules.push({ required: true, message: 'Number required' })
+  }
+  numberRules.push({
+    validator: (_, value) => {
+      const digits = String(value || '').replace(/\D/g, '')
+      if (!digits) return Promise.resolve()
+      if (!/^\d+$/.test(digits)) return Promise.reject(new Error('Only numbers are allowed'))
+      if (typeof minDigits === 'number' && digits.length < minDigits) {
+        return Promise.reject(new Error(`Number must be at least ${minDigits} digits for ${activeCode}`))
+      }
+      if (typeof maxDigits === 'number' && digits.length > maxDigits) {
+        return Promise.reject(new Error(`Number must be at most ${maxDigits} digits for ${activeCode}`))
+      }
+      return Promise.resolve()
+    },
+  })
 
   return (
     <Form.Item label={label} required={required}>
@@ -48,9 +73,18 @@ const PhoneInput = ({
         <Form.Item
           name={numberName}
           noStyle
-          rules={required ? [{ required: true, message: 'Number required' }] : undefined}
+          rules={numberRules}
+          getValueFromEvent={(e) => String(e?.target?.value || '').replace(/\D/g, '')}
         >
-          <Input placeholder="Number" type="tel" style={{ flex: 1 }} {...numberProps} />
+          <Input
+            placeholder="Number"
+            type="tel"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            maxLength={typeof maxDigits === 'number' ? maxDigits : undefined}
+            style={{ flex: 1 }}
+            {...numberProps}
+          />
         </Form.Item>
       </Space.Compact>
     </Form.Item>

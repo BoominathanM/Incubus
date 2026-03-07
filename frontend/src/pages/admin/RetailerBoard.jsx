@@ -103,6 +103,7 @@ const RetailerBoard = () => {
     {
       title: 'WhatsApp Number',
       key: 'whatsapp',
+      width: 170,
       render: (_, r) =>
         r.whatsappCountryCode && r.whatsappNumber ? `${r.whatsappCountryCode} ${r.whatsappNumber}` : '—',
     },

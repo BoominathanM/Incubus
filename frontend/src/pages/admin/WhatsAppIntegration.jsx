@@ -89,6 +89,7 @@ const TEMPLATE_FIELD_OPTIONS = [
 ]
 
 const WhatsAppIntegration = () => {
+  const isDarkTheme = typeof document !== 'undefined' && document.body.classList.contains('dark-theme')
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('configuration')
   const [form] = Form.useForm()
@@ -831,10 +832,20 @@ const WhatsAppIntegration = () => {
             <div>
               {variableMappings.length > 0 ? (
                 <>
-                  <div style={{ padding: '12px', background: '#f6ffed', borderRadius: '4px', marginBottom: 16 }}>
+                  <div
+                    style={{
+                      padding: '12px',
+                      background: isDarkTheme ? '#1f2a24' : '#f6ffed',
+                      border: `1px solid ${isDarkTheme ? '#274736' : '#b7eb8f'}`,
+                      borderRadius: '4px',
+                      marginBottom: 16,
+                    }}
+                  >
                     <Space>
                       <CheckCircleOutlined style={{ color: '#52c41a' }} />
-                      <Text>This template has {variableMappings.length} variable(s). Map each to a field below.</Text>
+                      <Text style={{ color: isDarkTheme ? '#f5f5f5' : undefined }}>
+                        This template has {variableMappings.length} variable(s). Map each to a field below.
+                      </Text>
                     </Space>
                     <div style={{ marginTop: 8 }}>
                       {variableMappings.map((vm, idx) => (
@@ -883,8 +894,17 @@ const WhatsAppIntegration = () => {
                   ))}
                 </>
               ) : (
-                <div style={{ padding: '24px', background: '#e6f7ff', borderRadius: '4px', textAlign: 'center', marginBottom: 16 }}>
-                  <Text type="secondary">This template has no variables.</Text>
+                <div
+                  style={{
+                    padding: '24px',
+                    background: isDarkTheme ? '#1f2a33' : '#e6f7ff',
+                    border: `1px solid ${isDarkTheme ? '#30363d' : '#91d5ff'}`,
+                    borderRadius: '4px',
+                    textAlign: 'center',
+                    marginBottom: 16,
+                  }}
+                >
+                  <Text style={{ color: isDarkTheme ? '#d9d9d9' : undefined }}>This template has no variables.</Text>
                 </div>
               )}
               {(!selectedTemplate?.variablePlaceholders?.length || variableMappings.length === 0) && (
@@ -894,8 +914,16 @@ const WhatsAppIntegration = () => {
               )}
             </div>
           ) : (
-            <div style={{ padding: '24px', background: '#e6f7ff', borderRadius: '4px', textAlign: 'center' }}>
-              <Text type="secondary">Select a template to see and map variables.</Text>
+            <div
+              style={{
+                padding: '24px',
+                background: isDarkTheme ? '#1f2a33' : '#e6f7ff',
+                border: `1px solid ${isDarkTheme ? '#30363d' : '#91d5ff'}`,
+                borderRadius: '4px',
+                textAlign: 'center',
+              }}
+            >
+              <Text style={{ color: isDarkTheme ? '#d9d9d9' : undefined }}>Select a template to see and map variables.</Text>
             </div>
           )}
         </Form>
