@@ -10,6 +10,13 @@ const XLSX = require('xlsx')
 
 const COMPANY_ID = process.env.ASKEVA_COMPANY_ID || 'default'
 
+function formatDateTime(value) {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleString()
+}
+
 function normalizeRole(role) {
   return String(role || '').trim().toLowerCase().replace(/[\s_-]+/g, '')
 }
@@ -251,7 +258,7 @@ async function list(req, res) {
         createdBy: roleLabel,
         createdByName: creatorName,
         createdById: creator?._id?.toString() || null,
-        createdAt: r.createdAt ? new Date(r.createdAt).toLocaleString() : '',
+        createdAt: formatDateTime(r.createdAt),
       }
     })
 
@@ -570,7 +577,7 @@ async function exportRetailers(req, res) {
       AltContactNumber: r.altContactNumber || '',
       Status: r.status,
       CreatedBy: r.createdBy?.name || r.createdBy?.email || 'WhatsApp',
-      CreatedAt: r.createdAt ? new Date(r.createdAt).toISOString() : '',
+      CreatedAt: formatDateTime(r.createdAt),
     }))
     if (!rows.length) {
       return res.status(400).json({ success: false, message: 'No data to export' })
