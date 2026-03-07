@@ -15,5 +15,8 @@ export function exportToExcel(rows, filename = 'export') {
 
 /** Format a date value for Excel cells */
 export function fmtDate(d) {
-  return d ? dayjs(d).format('YYYY-MM-DD HH:mm') : ''
+  if (!d) return ''
+  const dt = dayjs(d)
+  if (!dt.isValid()) return ''
+  return dt.format('YYYY-MM-DD hh:mm A')
 }
