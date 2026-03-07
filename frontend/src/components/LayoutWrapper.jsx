@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Layout, Menu, Avatar, Dropdown, Button, Space, Typography, Badge, List, Empty, Divider, Drawer, Form, Input, message } from 'antd'
+import { Layout, Menu, Avatar, Dropdown, Button, Space, Typography, Badge, List, Empty, Divider, Drawer, Form, Input, message, Grid } from 'antd'
 import {
   UserOutlined,
   LogoutOutlined,
@@ -11,6 +11,7 @@ import {
   ClearOutlined,
   EyeOutlined,
   CheckOutlined,
+  CloseCircleOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
@@ -37,13 +38,17 @@ const ROLE_LABELS = {
 
 const { Header, Sider, Content } = Layout
 const { Text } = Typography
+const { useBreakpoint } = Grid
 
 const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const { isDark, toggleTheme } = useTheme()
+  const screens = useBreakpoint()
+  const isMobile = !screens.md
   const [collapsed, setCollapsed] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [profileDrawerOpen, setProfileDrawerOpen] = useState(false)
   const [passwordForm] = Form.useForm()
   const [changingPassword, setChangingPassword] = useState(false)
@@ -79,6 +84,7 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
     const item = menuItems.find(i => i.key === key)
     if (item && item.path) {
       navigate(item.path)
+      if (isMobile) setMobileMenuOpen(false)
     }
   }
 
@@ -164,7 +170,8 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
 
   const notificationContent = (
     <div style={{ 
-      width: '400px', 
+      width: isMobile ? 'calc(100vw - 32px)' : '400px',
+      maxWidth: '400px',
       maxHeight: '500px',
       background: isDark ? '#1f1f1f' : '#fff',
       borderRadius: '8px',
@@ -317,6 +324,7 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
 
   return (
     <Layout className="layout-wrapper" style={{ height: '100vh', minHeight: '100vh', display: 'flex' }}>
+      {!isMobile && (
       <Sider
         trigger={null}
         collapsible
@@ -391,13 +399,87 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
           </div>
         </div>
       </Sider>
+      )}
+      {isMobile && (
+        <Drawer
+          title={null}
+          placement="left"
+          open={mobileMenuOpen}
+          onClose={() => setMobileMenuOpen(false)}
+          width={250}
+          bodyStyle={{ padding: 0 }}
+          styles={{ header: { display: 'none' } }}
+        >
+          <div
+            className="sidebar-inner"
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              height: '100%',
+              background: isDark ? '#141414' : '#fff',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 8px 0 8px' }}>
+              <Button
+                type="text"
+                icon={<CloseCircleOutlined />}
+                onClick={() => setMobileMenuOpen(false)}
+                title="Close menu"
+              />
+            </div>
+            <div className="logo">
+              <img
+                src="/Gadgets logo.png"
+                alt="Logo"
+                style={{ maxWidth: '150px', height: 'auto', objectFit: 'contain' }}
+              />
+            </div>
+            <Menu
+              theme={isDark ? 'dark' : 'light'}
+              mode="inline"
+              selectedKeys={[getSelectedKey()]}
+              items={menuItems}
+              onClick={handleMenuClick}
+              style={{
+                borderRight: 'none',
+                flex: 1,
+                overflow: 'auto',
+              }}
+            />
+            <div
+              style={{
+                borderTop: `1px solid ${isDark ? '#434343' : '#e8e8e8'}`,
+                padding: '8px 16px',
+                marginTop: 'auto',
+              }}
+            >
+              <Button
+                type="text"
+                danger
+                block
+                icon={<LogoutOutlined />}
+                onClick={handleLogout}
+                style={{
+                  height: 44,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'flex-start',
+                  color: isDark ? 'rgba(255, 77, 79, 0.85)' : '#ff4d4f',
+                }}
+              >
+                <span style={{ marginLeft: 8 }}>Logout</span>
+              </Button>
+            </div>
+          </div>
+        </Drawer>
+      )}
       <Layout style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <Header
           className="header"
           style={{
             background: isDark ? '#1f1f1f' : '#fff',
             borderBottom: `1px solid ${isDark ? '#434343' : '#e8e8e8'}`,
-            padding: '0 24px',
+            padding: isMobile ? '0 12px' : '0 24px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -405,10 +487,13 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
         >
           <Button
             type="text"
-            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-            onClick={() => setCollapsed(!collapsed)}
-            style={{ fontSize: '16px', width: 64, height: 64 }}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            icon={isMobile ? <MenuUnfoldOutlined /> : (collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />)}
+            onClick={() => {
+              if (isMobile) setMobileMenuOpen(true)
+              else setCollapsed(!collapsed)
+            }}
+            style={{ fontSize: '16px', width: isMobile ? 44 : 64, height: isMobile ? 44 : 64 }}
+            title={isMobile ? 'Open menu' : (collapsed ? 'Expand sidebar' : 'Collapse sidebar')}
           />
           <Space>
             <Dropdown 
@@ -433,7 +518,7 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
             <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
               <Space style={{ cursor: 'pointer' }}>
                 <Avatar icon={<UserOutlined />} />
-                <Text>{user?.name || user?.email}</Text>
+                {!isMobile && <Text>{user?.name || user?.email}</Text>}
               </Space>
             </Dropdown>
           </Space>
@@ -442,8 +527,8 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
           className="content"
           style={{
             flex: 1,
-            margin: '24px',
-            padding: '24px',
+            margin: isMobile ? '8px' : '24px',
+            padding: isMobile ? '12px' : '24px',
             background: isDark ? '#141414' : '#f0f2f5',
             borderRadius: '8px',
             minHeight: 0,
@@ -459,7 +544,7 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
         placement="right"
         onClose={onCloseProfileDrawer}
         open={profileDrawerOpen}
-        width={380}
+        width={isMobile ? '100%' : 380}
         styles={{
           body: {
             background: isDark ? '#141414' : '#fff',

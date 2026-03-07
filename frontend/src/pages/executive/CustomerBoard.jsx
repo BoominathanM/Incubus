@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react'
-import { Tabs, Table, Tag, Button, Space, Input, Modal, Form, message, Typography, Upload, Row, Col, DatePicker, Alert, Dropdown } from 'antd'
+import { Tabs, Table, Tag, Button, Space, Input, Modal, Form, message, Typography, Upload, Row, Col, DatePicker, Alert, Dropdown, Grid } from 'antd'
 import {
   SearchOutlined,
   PlusOutlined,
@@ -33,6 +33,7 @@ import { getUploadErrorMessage } from '../../utils/uploadErrors'
 const { Title } = Typography
 const { Link } = Typography
 const { RangePicker } = DatePicker
+const { useBreakpoint } = Grid
 
 const ALLOWED_UPLOAD_ACCEPT = '.pdf,.jpg,.jpeg,.png'
 const STATUS_DISPLAY = {
@@ -44,6 +45,8 @@ const STATUS_DISPLAY = {
 }
 
 const CustomerBoard = () => {
+  const screens = useBreakpoint()
+  const isSmallScreen = !screens.md
   const { user } = useAuth()
   const [activeTab, setActiveTab] = useState('requests')
   const [searchText, setSearchText] = useState('')
@@ -321,7 +324,9 @@ const CustomerBoard = () => {
           columns={requestColumns}
           dataSource={retailers}
           loading={listLoading}
-          pagination={{ pageSize: 10 }}
+          pagination={{ pageSize: 10, responsive: true, size: isSmallScreen ? 'small' : 'default' }}
+          size={isSmallScreen ? 'small' : 'middle'}
+          scroll={{ x: 'max-content' }}
         />
       ),
     },
@@ -334,7 +339,9 @@ const CustomerBoard = () => {
           columns={approvedColumns}
           dataSource={retailers}
           loading={listLoading}
-          pagination={{ pageSize: 10 }}
+          pagination={{ pageSize: 10, responsive: true, size: isSmallScreen ? 'small' : 'default' }}
+          size={isSmallScreen ? 'small' : 'middle'}
+          scroll={{ x: 'max-content' }}
         />
       ),
     },
@@ -347,7 +354,8 @@ const CustomerBoard = () => {
           columns={rejectedColumns}
           dataSource={retailers}
           loading={listLoading}
-          pagination={{ pageSize: 10 }}
+          pagination={{ pageSize: 10, responsive: true, size: isSmallScreen ? 'small' : 'default' }}
+          size={isSmallScreen ? 'small' : 'middle'}
           scroll={{ x: 'max-content' }}
         />
       ),

@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Table, Tag, Button, Space, Input, Modal, Form, Select, message, Typography, Dropdown } from 'antd'
+import { Table, Tag, Button, Space, Input, Modal, Form, Select, message, Typography, Dropdown, Grid } from 'antd'
 import Breadcrumbs from '../../components/Breadcrumbs'
 import PhoneInput from '../../components/PhoneInput'
 import { useAuth } from '../../context/AuthContext'
@@ -20,12 +20,15 @@ import {
 
 const { Title } = Typography
 const { Option } = Select
+const { useBreakpoint } = Grid
 
 // Backend uses active/inactive; display as Active/Inactive
 const statusDisplay = (s) => (s === 'active' ? 'Active' : 'Inactive')
 const ROLE_LABELS = { admin: 'Admin', executive: 'Executive Agent', billing: 'Billing Agent', warehouse: 'Warehouse & Delivery Agent', superadmin: 'Super Admin' }
 
 const AgentManagement = () => {
+  const screens = useBreakpoint()
+  const isSmallScreen = !screens.md
   const { user: currentUser } = useAuth()
   const [userModalVisible, setUserModalVisible] = useState(false)
   const [selectedUser, setSelectedUser] = useState(null)
@@ -258,7 +261,7 @@ const AgentManagement = () => {
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             allowClear
-            style={{ width: '100%', maxWidth: 300, minWidth: 200 }}
+            style={{ width: '100%', maxWidth: 300, minWidth: isSmallScreen ? undefined : 200 }}
           />
           <Button
             type="primary"
@@ -277,7 +280,9 @@ const AgentManagement = () => {
           columns={userColumns}
           dataSource={filteredUsers}
           loading={loading}
-          pagination={{ pageSize: 10 }}
+          pagination={{ pageSize: 10, responsive: true, size: isSmallScreen ? 'small' : 'default' }}
+          size={isSmallScreen ? 'small' : 'middle'}
+          scroll={{ x: 'max-content' }}
         />
       </div>
 
