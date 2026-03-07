@@ -168,6 +168,7 @@ async function createOrderFromWebhook({
   extraFields = {},
   rawPayload: rawPayloadArg,
 }) {
+  const { skipBillingNotification, ...persistExtraFields } = extraFields || {}
   // VERIFY response_json flow_token BEFORE any order logic: never create order for retailer_form_copy
   if (webhookMessageId) {
     const wm = await WebhookMessage.findById(webhookMessageId).select('rawPayload flowToken messageType').lean()
@@ -261,7 +262,7 @@ async function createOrderFromWebhook({
     orderId,
     companyId,
     webhookMessageId: webhookMessageId || null,
-    referenceId: extraFields.referenceId != null ? String(extraFields.referenceId).trim() : '',
+    referenceId: persistExtraFields.referenceId != null ? String(persistExtraFields.referenceId).trim() : '',
     type: retailerMatched ? 'retailer' : 'enduser',
     from: from || '',
     fromName: fromName || '',
@@ -271,15 +272,22 @@ async function createOrderFromWebhook({
     messageBody: messageBodyResolved || '',
     contactName: fromName || '',
     contactNumber: from || '',
-    amount: amount || extraFields.amount || 0,
-    paymentStatus: extraFields.paymentStatus || 'Pending',
+    amount: amount || persistExtraFields.amount || 0,
+    paymentStatus: persistExtraFields.paymentStatus || 'Pending',
     billingStatus: 'Pending',
     warehouseStatus: 'Preparing',
     dispatchStatus: 'Pending',
     deliveryStatus: 'Pending',
     finalStatus: 'Open',
   }
-  const order = await OrderManagement.create({ ...orderPayload, ...extraFields })
+  const order = await OrderManagement.create({ ...orderPayload, ...persistExtraFields })
+  if (!skipBillingNotification && order?.orderId) {
+    notifyBillingAgents(
+      'New order arrived – verify',
+      `Order ${order.orderId} has been placed. Please verify.`,
+      order.orderId
+    ).catch((e) => console.warn('[OrderController] notifyBillingAgents failed:', e.message))
+  }
   return order
 }
 
@@ -514,6 +522,13 @@ async function handleWebhookOrderEvent({
         },
       }
     )
+    if (!extraFields?.skipBillingNotification) {
+      notifyBillingAgents(
+        'New order arrived – verify',
+        `Order ${existing.orderId} has been placed. Please verify.`,
+        existing.orderId
+      ).catch((e) => console.warn('[OrderController] notifyBillingAgents failed:', e.message))
+    }
     return OrderManagement.findOne({ orderId: existing.orderId }).lean()
   }
   try {
@@ -679,6 +694,7 @@ exports.backfillOrdersFromWebhooks = async (req, res) => {
           items: finalItems,
           catalogId: '',
           messageBody: msg.messageBody,
+          extraFields: { skipBillingNotification: true },
         })
         created++
       } catch (e) {

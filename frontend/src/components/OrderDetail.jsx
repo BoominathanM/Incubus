@@ -46,11 +46,18 @@ const OrderDetail = ({ basePath = '/admin' }) => {
 
   // ── Permission helpers ────────────────────────────────────────────────────────
   const canUpdate = (section) => {
+    const paymentSuccess = orderData?.paymentStatus === 'Success'
+    const billingVerifiedDone = orderData?.billingVerified === true
+    const billingCompleted = orderData?.billingStatus === 'Completed'
+    const billingFlowCompleted = paymentSuccess && billingVerifiedDone && billingCompleted
+
     if (role === 'admin' || role === 'superadmin') return true
     if (section === 'retailer' || section === 'payment') return false
-    if (section === 'billing' || section === 'billing_verification') return role === 'billing'
+    if (section === 'billing' || section === 'billing_verification') {
+      return role === 'billing' && paymentSuccess
+    }
     if (section === 'warehouse_dispatch' || section === 'warehouse_delivery')
-      return role === 'warehouse'
+      return role === 'warehouse' && billingFlowCompleted
     return false
   }
 
@@ -61,6 +68,21 @@ const OrderDetail = ({ basePath = '/admin' }) => {
   }
 
   const isUpdateDisabled = (section) => !canUpdate(section)
+
+  const isSectionStageLockedForAdmin = (section) => {
+    const paymentSuccess = orderData?.paymentStatus === 'Success'
+    const billingVerifiedDone = orderData?.billingVerified === true
+    const billingCompleted = orderData?.billingStatus === 'Completed'
+    const billingFlowCompleted = paymentSuccess && billingVerifiedDone && billingCompleted
+
+    if (section === 'billing' || section === 'billing_verification') {
+      return !paymentSuccess
+    }
+    if (section === 'warehouse_dispatch' || section === 'warehouse_delivery') {
+      return !billingFlowCompleted
+    }
+    return false
+  }
 
   // ── Derived UI values ─────────────────────────────────────────────────────────
   const orderType = orderData?.type === 'retailer' ? 'retailer' : 'end_user'
@@ -365,12 +387,13 @@ const OrderDetail = ({ basePath = '/admin' }) => {
 
   const renderCardExtra = (section) => {
     if (!showUpdateButton(section)) return null
+    const adminStageLocked = (role === 'admin' || role === 'superadmin') && isSectionStageLockedForAdmin(section)
     return (
       <Button
         type="primary"
         icon={<EditOutlined />}
         onClick={() => handleUpdateClick(section)}
-        disabled={isUpdateDisabled(section)}
+        disabled={isUpdateDisabled(section) || adminStageLocked}
       >
         Update
       </Button>

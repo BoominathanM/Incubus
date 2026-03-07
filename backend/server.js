@@ -195,6 +195,7 @@ async function backfillOrdersOnStartup() {
           messageBody: msg.messageBody,
           extraFields: {
             paymentStatus: 'Pending',
+            skipBillingNotification: true,
             ...(backfillReferenceId && { referenceId: backfillReferenceId }),
           },
         })
