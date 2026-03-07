@@ -127,6 +127,14 @@
   overflow-x: auto;
 }
 
+.order-update-modal .ant-modal-close {
+  inset-inline-end: 14px;
+}
+
+.order-update-modal .ant-modal-header {
+  padding-right: 52px;
+}
+
 @media (max-width: 768px) {
   .order-management-card .ant-table-wrapper {
     font-size: 12px;

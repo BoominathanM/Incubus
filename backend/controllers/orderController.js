@@ -1106,6 +1106,24 @@ exports.updateOrder = async (req, res) => {
       return res.status(403).json({ success: false, message: 'No permitted fields to update' })
     }
 
+    // Enforce unique invoice number across orders (except current order).
+    if (Object.prototype.hasOwnProperty.call(updateData, 'invoiceNumber')) {
+      const invoiceNumber = String(updateData.invoiceNumber || '').trim()
+      updateData.invoiceNumber = invoiceNumber
+      if (invoiceNumber) {
+        const duplicateInvoice = await OrderManagement.findOne({
+          _id: { $ne: order._id },
+          invoiceNumber: { $regex: `^${invoiceNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
+        }).select('_id orderId invoiceNumber').lean()
+        if (duplicateInvoice) {
+          return res.status(400).json({
+            success: false,
+            message: `Invoice number '${invoiceNumber}' already exists for order ${duplicateInvoice.orderId}.`,
+          })
+        }
+      }
+    }
+
     // Auto-set billing meta
     if (updateData.billingVerified === true && !updateData.billingVerifiedAt) {
       const u = await User.findById(req.user.id, 'name').lean()
