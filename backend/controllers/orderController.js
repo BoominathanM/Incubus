@@ -114,6 +114,17 @@ function getAllowedFields(role, payload) {
   return filtered
 }
 
+function isOrderFlowCompleted(orderLike = {}) {
+  return (
+    orderLike.paymentStatus === 'Success' &&
+    orderLike.billingVerified === true &&
+    orderLike.billingStatus === 'Completed' &&
+    orderLike.warehouseStatus === 'Ready' &&
+    orderLike.dispatchStatus === 'Dispatched' &&
+    orderLike.deliveryStatus === 'Delivered'
+  )
+}
+
 // Time windows for correlating webhook messages to same order (milliseconds)
 const ORDER_CORRELATION_WINDOW_MS = 30 * 60 * 1000 // 30 min for payment to find order
 const ORDER_UPDATE_WINDOW_MS = 10 * 60 * 1000      // 10 min for interactive to find order
@@ -1133,6 +1144,12 @@ exports.updateOrder = async (req, res) => {
     if (updateData.deliveryStatus === 'Delivered' && !order.deliveryTime && !updateData.deliveryTime) {
       updateData.deliveryTime = new Date()
     }
+
+    const nextOrderState = {
+      ...order.toObject(),
+      ...updateData,
+    }
+    updateData.finalStatus = isOrderFlowCompleted(nextOrderState) ? 'Closed' : 'Open'
 
     const updated = await OrderManagement.findOneAndUpdate(
       { orderId: req.params.orderId },

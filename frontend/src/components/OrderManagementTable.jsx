@@ -4,6 +4,7 @@ import { Card, Table, Tag, Button, Space, Input, DatePicker, Dropdown } from 'an
 import { EyeOutlined, ExportOutlined, SearchOutlined, MoreOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useGetOrdersQuery } from '../store/api/orderApi'
+import { ORDER_POLLING_OPTIONS } from '../store/api/queryOptions'
 import './OrderDetail.css'
 
 const { RangePicker } = DatePicker
@@ -25,7 +26,7 @@ const OrderManagementTable = ({ detailPathPrefix }) => {
     limit: 20,
   }), [searchText, dateRange])
 
-  const { data, isLoading, isFetching } = useGetOrdersQuery(queryParams)
+  const { data, isLoading, isFetching } = useGetOrdersQuery(queryParams, ORDER_POLLING_OPTIONS)
   const orders = data?.data?.orders || []
 
   const formatDate = (d) => (d ? dayjs(d).format('YYYY-MM-DD hh:mm A') : '-')

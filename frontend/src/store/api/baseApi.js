@@ -24,5 +24,7 @@ export const baseApi = createApi({
   reducerPath: 'api',
   baseQuery: baseQueryWithAuth,
   tagTypes: ['Users', 'CountryCodes', 'AskevaConfig', 'AskevaTemplates', 'EventMappings', 'Retailers', 'Orders', 'Notifications'],
+  refetchOnFocus: true,
+  refetchOnReconnect: true,
   endpoints: () => ({}),
 })

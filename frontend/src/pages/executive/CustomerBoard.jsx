@@ -28,6 +28,7 @@ import {
   downloadExportBlob,
   downloadSampleBlob,
 } from '../../store/api/retailerApi'
+import { RETAILER_POLLING_OPTIONS } from '../../store/api/queryOptions'
 import { getUploadErrorMessage } from '../../utils/uploadErrors'
 import dayjs from 'dayjs'
 
@@ -72,7 +73,7 @@ const CustomerBoard = () => {
     dateFrom: dateRange?.[0]?.startOf('day').toISOString?.(),
     dateTo: dateRange?.[1]?.endOf('day').toISOString?.(),
   }
-  const { data: listData, isLoading: listLoading } = useGetRetailersQuery(listParams)
+  const { data: listData, isLoading: listLoading } = useGetRetailersQuery(listParams, RETAILER_POLLING_OPTIONS)
   const retailers = listData?.retailers ?? []
   const [createRetailer, { isLoading: creating }] = useCreateRetailerMutation()
   const [updateRetailer, { isLoading: updating }] = useUpdateRetailerMutation()

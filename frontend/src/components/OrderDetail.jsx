@@ -10,11 +10,23 @@ import { ArrowLeftOutlined, CheckCircleOutlined, EditOutlined, UploadOutlined, L
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
 import { useGetOrderByIdQuery, useUpdateOrderMutation } from '../store/api/orderApi'
+import { ORDER_DETAIL_POLLING_OPTIONS } from '../store/api/queryOptions'
 import dayjs from 'dayjs'
 import './OrderDetail.css'
 
 const { Option } = Select
 const { Title, Text } = Typography
+
+function isOrderFlowCompleted(order) {
+  return (
+    order?.paymentStatus === 'Success' &&
+    order?.billingVerified === true &&
+    order?.billingStatus === 'Completed' &&
+    order?.warehouseStatus === 'Ready' &&
+    order?.dispatchStatus === 'Dispatched' &&
+    order?.deliveryStatus === 'Delivered'
+  )
+}
 
 /**
  * Shared OrderDetail — reads from real API, role-based update permissions:
@@ -35,10 +47,14 @@ const OrderDetail = ({ basePath = '/admin' }) => {
   const [form] = Form.useForm()
   const deliveryTypeWatch = Form.useWatch('deliveryType', form)
 
-  const { data, isLoading, isError } = useGetOrderByIdQuery(orderId, { skip: !orderId })
+  const { data, isLoading, isError } = useGetOrderByIdQuery(orderId, {
+    ...ORDER_DETAIL_POLLING_OPTIONS,
+    skip: !orderId,
+  })
   const [updateOrder, { isLoading: isUpdating }] = useUpdateOrderMutation()
 
   const orderData = data?.data || null
+  const effectiveFinalStatus = isOrderFlowCompleted(orderData) ? 'Closed' : (orderData?.finalStatus || 'Open')
 
   const fmt = (d) => (d ? dayjs(d).format('YYYY-MM-DD hh:mm A') : '-')
 
@@ -95,7 +111,7 @@ const OrderDetail = ({ basePath = '/admin' }) => {
         { key: 4, title: 'Warehouse Prepared', date: fmt(orderData.warehouseTime), status: orderData.warehouseStatus === 'Ready' ? 'completed' : 'pending' },
         { key: 5, title: 'Dispatched', date: fmt(orderData.dispatchTime), status: orderData.dispatchStatus === 'Dispatched' ? 'completed' : 'pending' },
         { key: 6, title: 'Delivered', date: fmt(orderData.deliveryTime), status: orderData.deliveryStatus === 'Delivered' ? 'completed' : 'pending' },
-        { key: 7, title: 'Closed', date: null, status: orderData.finalStatus === 'Closed' ? 'completed' : 'pending' },
+        { key: 7, title: 'Closed', date: null, status: effectiveFinalStatus === 'Closed' ? 'completed' : 'pending' },
       ]
     : []
 
@@ -553,7 +569,7 @@ const OrderDetail = ({ basePath = '/admin' }) => {
               }).join(', ') || orderData.messageBody || '-',
               'Amount': <Text strong style={{ color: '#15B9A4', fontSize: '16px' }}>₹{(orderData.amount || 0).toLocaleString()}</Text>,
               'Type': <Tag color={orderData.type === 'retailer' ? 'blue' : 'default'}>{orderData.type === 'retailer' ? 'Retailer' : 'End User'}</Tag>,
-              'Final Status': <Tag color={orderData.finalStatus === 'Closed' ? '#15B9A4' : '#6754A3'}>{orderData.finalStatus || 'Open'}</Tag>,
+              'Final Status': <Tag color={effectiveFinalStatus === 'Closed' ? '#15B9A4' : '#6754A3'}>{effectiveFinalStatus}</Tag>,
             }]}
             columns={[
               { title: 'Order ID', dataIndex: 'Order ID', key: 'orderId' },

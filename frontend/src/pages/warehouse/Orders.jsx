@@ -5,6 +5,7 @@ import Breadcrumbs from '../../components/Breadcrumbs'
 import { SearchOutlined, EyeOutlined, MoreOutlined, ExportOutlined, FilterOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useGetOrdersQuery } from '../../store/api/orderApi'
+import { ORDER_POLLING_OPTIONS } from '../../store/api/queryOptions'
 import { exportToExcel, fmtDate } from '../../utils/exportToExcel'
 
 const { Title } = Typography
@@ -45,9 +46,7 @@ const WarehouseOrders = () => {
     [searchText, dateRange]
   )
 
-  const { data, isLoading, isFetching } = useGetOrdersQuery(queryParams, {
-    refetchOnMountOrArgChange: 60,
-  })
+  const { data, isLoading, isFetching } = useGetOrdersQuery(queryParams, ORDER_POLLING_OPTIONS)
   const orders = data?.data?.orders || []
 
   // Client-side filtering

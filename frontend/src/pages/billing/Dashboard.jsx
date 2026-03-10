@@ -12,6 +12,7 @@ import {
 import Breadcrumbs from '../../components/Breadcrumbs'
 import dayjs from 'dayjs'
 import { useGetOrderStatsQuery, useGetOrderStatsByDateQuery } from '../../store/api/orderApi'
+import { DASHBOARD_POLLING_OPTIONS } from '../../store/api/queryOptions'
 
 const { Title } = Typography
 const { RangePicker } = DatePicker
@@ -33,12 +34,12 @@ const BillingDashboard = () => {
     ? `${dateRange[0].format('DD/MM/YYYY')} - ${dateRange[1].format('DD/MM/YYYY')}`
     : 'All Time'
 
-  const { data: statsData, isLoading } = useGetOrderStatsQuery(dateParams)
+  const { data: statsData, isLoading } = useGetOrderStatsQuery(dateParams, DASHBOARD_POLLING_OPTIONS)
   const os = statsData?.data ?? {}
 
   const { data: orderStatsByDateData } = useGetOrderStatsByDateQuery(
     { ...dateParams, group: 'day' },
-    { refetchOnMountOrArgChange: 60 }
+    DASHBOARD_POLLING_OPTIONS
   )
 
   // Line chart — orders per day (total/pending/completed)
