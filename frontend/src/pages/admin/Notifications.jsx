@@ -9,6 +9,7 @@ import {
   useDeleteNotificationMutation,
   useClearAllNotificationsMutation,
 } from '../../store/api/notificationApi'
+import { NOTIFICATION_POLLING_OPTIONS } from '../../store/api/queryOptions'
 
 const { Title } = Typography
 
@@ -32,7 +33,7 @@ const Notifications = () => {
   const [searchText, setSearchText] = useState('')
   const { data, isLoading } = useGetNotificationsQuery(
     { page: 1, limit: 50 },
-    { refetchInterval: 10000 }
+    NOTIFICATION_POLLING_OPTIONS
   )
   const [markRead] = useMarkNotificationReadMutation()
   const [markAllRead] = useMarkAllNotificationsReadMutation()

@@ -24,6 +24,7 @@ import {
   useMarkAllNotificationsReadMutation,
   useClearAllNotificationsMutation,
 } from '../store/api/notificationApi'
+import { NOTIFICATION_POLLING_OPTIONS } from '../store/api/queryOptions'
 import axios from 'axios'
 import { getApiBase } from '../utils/api'
 import './LayoutWrapper.css'
@@ -55,11 +56,11 @@ const LayoutWrapper = ({ children, menuItems, defaultSelectedKey = '1' }) => {
   const [updateUser] = useUpdateUserMutation()
   const { data: notifData } = useGetNotificationsQuery(
     { page: 1, limit: 5 },
-    { skip: !user, refetchInterval: 10000 }
+    { ...NOTIFICATION_POLLING_OPTIONS, skip: !user }
   )
   const { data: unreadData } = useGetUnreadCountQuery(undefined, {
     skip: !user,
-    refetchInterval: 10000,
+    ...NOTIFICATION_POLLING_OPTIONS,
   })
   const [markRead] = useMarkNotificationReadMutation()
   const [markAllRead] = useMarkAllNotificationsReadMutation()

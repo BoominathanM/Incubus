@@ -12,6 +12,7 @@ import {
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useGetOrdersQuery, useUpdateOrderMutation, useBackfillOrdersMutation } from '../../store/api/orderApi'
+import { ORDER_POLLING_OPTIONS } from '../../store/api/queryOptions'
 import { exportToExcel, fmtDate } from '../../utils/exportToExcel'
 
 const { Title } = Typography
@@ -69,9 +70,7 @@ const AdminOrders = () => {
     [activeTab, searchText, dateRange]
   )
 
-  const { data, isLoading, isFetching } = useGetOrdersQuery(queryParams, {
-    refetchOnMountOrArgChange: 60,
-  })
+  const { data, isLoading, isFetching } = useGetOrdersQuery(queryParams, ORDER_POLLING_OPTIONS)
   const [updateOrder, { isLoading: isUpdating }] = useUpdateOrderMutation()
   const [backfillOrders] = useBackfillOrdersMutation()
   const hasAttemptedBackfill = useRef(false)

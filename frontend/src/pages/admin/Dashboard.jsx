@@ -18,6 +18,7 @@ import Breadcrumbs from '../../components/Breadcrumbs'
 import dayjs from 'dayjs'
 import { useGetRetailerStatsQuery } from '../../store/api/retailerApi'
 import { useGetOrderStatsQuery, useGetOrderStatsByDateQuery } from '../../store/api/orderApi'
+import { DASHBOARD_POLLING_OPTIONS } from '../../store/api/queryOptions'
 
 const { RangePicker } = DatePicker
 const { Title } = Typography
@@ -27,7 +28,7 @@ const RETAILER_PIE_COLORS = ['#52c41a', '#faad14', '#ff4d4f']
 const AdminDashboard = () => {
   const navigate = useNavigate()
   const [dateRange, setDateRange] = useState([dayjs().startOf('month'), dayjs()])
-  const { data: statsData } = useGetRetailerStatsQuery()
+  const { data: statsData } = useGetRetailerStatsQuery(undefined, DASHBOARD_POLLING_OPTIONS)
   const s = statsData?.stats ?? {}
 
   const rangeLabel = dateRange?.[0] && dateRange?.[1]
@@ -42,12 +43,12 @@ const AdminDashboard = () => {
     }
   }, [dateRange])
 
-  const { data: orderStatsData, isLoading: statsLoading } = useGetOrderStatsQuery(dateParams)
+  const { data: orderStatsData, isLoading: statsLoading } = useGetOrderStatsQuery(dateParams, DASHBOARD_POLLING_OPTIONS)
   const os = orderStatsData?.data ?? {}
 
   const { data: orderStatsByDateData } = useGetOrderStatsByDateQuery(
     { ...dateParams, group: 'day' },
-    { refetchOnMountOrArgChange: 60 }
+    DASHBOARD_POLLING_OPTIONS
   )
 
   // Line chart — orders per day (total/pending/completed)
