@@ -82,6 +82,31 @@ async function generateOrderId() {
   const counterKey = `order_${year}`
   let seq = 1
   try {
+    const latestOrder = await OrderManagement.findOne({
+      orderId: { $regex: `^ORD-${year}-\\d+$` },
+    })
+      .sort({ orderId: -1 })
+      .select('orderId')
+      .lean()
+
+    const latestExistingSeq = latestOrder
+      ? Number(String(latestOrder.orderId).split('-').pop()) || 0
+      : 0
+
+    if (latestExistingSeq > 0) {
+      await OrderCounter.findOneAndUpdate(
+        {
+          _id: counterKey,
+          $or: [
+            { seq: { $exists: false } },
+            { seq: { $lt: latestExistingSeq } },
+          ],
+        },
+        { $set: { seq: latestExistingSeq } },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      )
+    }
+
     const counter = await OrderCounter.findOneAndUpdate(
       { _id: counterKey },
       { $inc: { seq: 1 } },
@@ -94,6 +119,30 @@ async function generateOrderId() {
     seq = (await OrderManagement.countDocuments({ orderId: { $regex: `^ORD-${year}-` } })) + 1
   }
   return `ORD-${year}-${String(seq).padStart(3, '0')}`
+}
+
+function isDuplicateOrderIdError(err) {
+  if (!err || err.code !== 11000) return false
+  const keyPattern = err.keyPattern || {}
+  const keyValue = err.keyValue || {}
+  return Boolean(keyPattern.orderId || keyValue.orderId || String(err.message || '').includes('orderId'))
+}
+
+async function createOrderDocumentWithRetry(orderPayload, maxAttempts = 3) {
+  let lastErr = null
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const orderId = await generateOrderId()
+      return await OrderManagement.create({ ...orderPayload, orderId })
+    } catch (err) {
+      lastErr = err
+      if (!isDuplicateOrderIdError(err) || attempt === maxAttempts) {
+        throw err
+      }
+      console.warn(`[OrderController] Duplicate orderId generated on attempt ${attempt}; retrying`)
+    }
+  }
+  throw lastErr
 }
 
 function getAllowedFields(role, payload) {
@@ -267,10 +316,8 @@ async function createOrderFromWebhook({
     return null
   }
 
-  const orderId = await generateOrderId()
   const messageBodyResolved = messageBody || enrichedItems.map((i) => (i.productName ? `${i.productName} x${i.quantity}` : `${i.productRetailerId} x${i.quantity}`)).join(', ')
   const orderPayload = {
-    orderId,
     companyId,
     webhookMessageId: webhookMessageId || null,
     referenceId: persistExtraFields.referenceId != null ? String(persistExtraFields.referenceId).trim() : '',
@@ -291,7 +338,7 @@ async function createOrderFromWebhook({
     deliveryStatus: 'Pending',
     finalStatus: 'Open',
   }
-  const order = await OrderManagement.create({ ...orderPayload, ...persistExtraFields })
+  const order = await createOrderDocumentWithRetry({ ...orderPayload, ...persistExtraFields })
   if (!skipBillingNotification && order?.orderId) {
     notifyBillingAgents(
       'New order arrived – verify',
@@ -761,10 +808,8 @@ exports.createOrder = async (req, res) => {
         })
       }
     }
-    const orderId = await generateOrderId()
-    const order = await OrderManagement.create({
+    const order = await createOrderDocumentWithRetry({
       ...req.body,
-      orderId,
       companyId,
       type: req.body.type || 'enduser',
     })
