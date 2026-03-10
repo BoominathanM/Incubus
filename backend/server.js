@@ -25,6 +25,7 @@ const allowedOrigins = [
   'http://127.0.0.1:7001',
   'http://127.0.0.1:5173',
   'https://incubus.askeva.io',
+  'https://unsmiling-heteropterous-korey.ngrok-free.dev',
 ]
 const corsOrigin = process.env.FRONTEND_URL
   ? [process.env.FRONTEND_URL, ...allowedOrigins]
