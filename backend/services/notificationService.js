@@ -10,7 +10,7 @@ async function createNotificationForRoles(roles, payload) {
   if (!Array.isArray(roles) || roles.length === 0) return
   const users = await User.find({ role: { $in: roles }, status: 'active' })
     .select('_id role')
-    .lean()
+    .lean()       
   if (users.length === 0) {
     console.warn('[NotificationService] No users found for roles:', roles, '— notification not sent:', payload.title)
     return
