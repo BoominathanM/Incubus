@@ -31,6 +31,7 @@ import {
 import { RETAILER_POLLING_OPTIONS } from '../../store/api/queryOptions'
 import { getUploadErrorMessage } from '../../utils/uploadErrors'
 import dayjs from 'dayjs'
+import { formatDateTime } from '../../utils/dateUtils'
 
 const { Title } = Typography
 const { Link } = Typography
@@ -179,7 +180,7 @@ const CustomerBoard = () => {
       dataIndex: 'rejectedAt',
       key: 'rejectedAt',
       width: 160,
-      render: (t) => (t ? new Date(t).toLocaleString() : '—'),
+      render: (t) => formatDateTime(t),
     },
     {
       title: 'Actions',
@@ -588,10 +589,10 @@ const CustomerBoard = () => {
             { key: '12', field: 'Status', value: <Tag style={{ margin: 0, padding: '2px 10px' }}>{STATUS_DISPLAY[viewRetailer.status] ?? viewRetailer.status}</Tag> },
             ...(viewRetailer.status === 'rejected' ? [
               { key: 'r1', field: 'Reject Reason', value: viewRetailer.rejectedReason || '—' },
-              { key: 'r2', field: 'Rejected At', value: viewRetailer.rejectedAt ? new Date(viewRetailer.rejectedAt).toLocaleString() : '—' },
+              { key: 'r2', field: 'Rejected At', value: formatDateTime(viewRetailer.rejectedAt) },
             ] : []),
             { key: '13', field: 'Created By', value: viewRetailer.createdBy || '—' },
-            { key: '14', field: 'Created At', value: viewRetailer.createdAt || '—' },
+            { key: '14', field: 'Created At', value: formatDateTime(viewRetailer.createdAt) },
           ]
           return (
             <Table

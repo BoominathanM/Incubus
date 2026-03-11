@@ -10,12 +10,7 @@ const XLSX = require('xlsx')
 
 const COMPANY_ID = process.env.ASKEVA_COMPANY_ID || 'default'
 
-function formatDateTime(value) {
-  if (!value) return ''
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleString()
-}
+// Dates are sent as ISO strings; frontend formats in user's timezone to avoid production UTC mismatch
 
 function normalizeRole(role) {
   return String(role || '').trim().toLowerCase().replace(/[\s_-]+/g, '')
@@ -260,7 +255,7 @@ async function list(req, res) {
         createdBy: roleLabel,
         createdByName: creatorName,
         createdById: creator?._id?.toString() || null,
-        createdAt: formatDateTime(r.createdAt),
+        createdAt: r.createdAt,
       }
     })
 
@@ -590,7 +585,7 @@ async function exportRetailers(req, res) {
       AltContactNumber: r.altContactNumber || '',
       Status: r.status,
       CreatedBy: r.createdBy?.name || r.createdBy?.email || 'WhatsApp',
-      CreatedAt: formatDateTime(r.createdAt),
+      CreatedAt: r.createdAt ? new Date(r.createdAt).toISOString() : '',
     }))
     if (!rows.length) {
       return res.status(400).json({ success: false, message: 'No data to export' })
