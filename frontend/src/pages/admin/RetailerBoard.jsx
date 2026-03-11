@@ -19,6 +19,7 @@ import Breadcrumbs from '../../components/Breadcrumbs'
 import PhoneInput from '../../components/PhoneInput'
 import ImportRetailersModal from '../../components/ImportRetailersModal'
 import dayjs from 'dayjs'
+import { formatDateTime } from '../../utils/dateUtils'
 import {
   useGetRetailersQuery,
   useCreateRetailerMutation,
@@ -130,7 +131,7 @@ const RetailerBoard = () => {
         </Tag>
       ),
     },
-    { title: 'Created At', dataIndex: 'createdAt', key: 'createdAt', render: (t) => t || '—' },
+    { title: 'Created At', dataIndex: 'createdAt', key: 'createdAt', render: (t) => formatDateTime(t) },
     {
       title: 'Created By',
       dataIndex: 'createdBy',
@@ -178,7 +179,7 @@ const RetailerBoard = () => {
         <Tag color={status === 'active' ? 'green' : 'red'} style={{ margin: 0, padding: '2px 10px', lineHeight: '22px' }}>{STATUS_DISPLAY[status] ?? status}</Tag>
       ),
     },
-    { title: 'Created At', dataIndex: 'createdAt', key: 'createdAt', render: (t) => t || '—' },
+    { title: 'Created At', dataIndex: 'createdAt', key: 'createdAt', render: (t) => formatDateTime(t) },
     {
       title: 'Created By',
       dataIndex: 'createdBy',
@@ -223,8 +224,8 @@ const RetailerBoard = () => {
       ellipsis: true,
       render: (v) => v || '—',
     },
-    { title: 'Rejected At', dataIndex: 'rejectedAt', key: 'rejectedAt', width: 160, render: (t) => (t ? new Date(t).toLocaleString() : '—') },
-    { title: 'Created At', dataIndex: 'createdAt', key: 'createdAt', render: (t) => t || '—' },
+    { title: 'Rejected At', dataIndex: 'rejectedAt', key: 'rejectedAt', width: 160, render: (t) => formatDateTime(t) },
+    { title: 'Created At', dataIndex: 'createdAt', key: 'createdAt', render: (t) => formatDateTime(t) },
     {
       title: 'Created By',
       dataIndex: 'createdBy',
@@ -746,9 +747,9 @@ const RetailerBoard = () => {
             { key: '12', field: 'Status', value: <Tag style={{ margin: 0, padding: '2px 10px' }}>{STATUS_DISPLAY[viewRetailer.status] ?? viewRetailer.status}</Tag> },
             ...(viewRetailer.status === 'rejected' ? [
               { key: 'r1', field: 'Reject Reason', value: viewRetailer.rejectedReason || '—' },
-              { key: 'r2', field: 'Rejected At', value: viewRetailer.rejectedAt ? new Date(viewRetailer.rejectedAt).toLocaleString() : '—' },
+              { key: 'r2', field: 'Rejected At', value: formatDateTime(viewRetailer.rejectedAt) },
             ] : []),
-            { key: '13', field: 'Created At', value: viewRetailer.createdAt || '—' },
+            { key: '13', field: 'Created At', value: formatDateTime(viewRetailer.createdAt) },
           ]
           return (
             <Table
