@@ -19,6 +19,7 @@
 
 const Retailer = require('../models/Retailer')
 const { generateRetailerId } = require('../utils/retailerId')
+const { fetchAndGetMediaUrl, extractFirstMediaDoc } = require('./whatsappMediaService')
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -230,10 +231,11 @@ function verifyWebhookFlowFromRaw(rawPayload) {
 /**
  * Given a parsed response_json object (rj), sender digits, and name,
  * create or update a Retailer document.
+ * @param {string} [companyId] - Optional company ID for media token lookup
  * - Active/approved retailers are never overwritten.
  * - Rejected/pending retailers get their fields refreshed and status reset to pending_approval.
  */
-async function upsertRetailerFromFlowData(fromDigits, fromName, rj) {
+async function upsertRetailerFromFlowData(fromDigits, fromName, rj, companyId) {
   // Case-insensitive field getter
   const get = (keys) => {
     for (const k of keys) {
@@ -293,6 +295,7 @@ async function upsertRetailerFromFlowData(fromDigits, fromName, rj) {
     whatsappNumber:      fields.whatsappNumber,
   })
 
+  let retailer
   if (existing) {
     // Never overwrite active/approved/disabled retailers
     if (['active', 'approved', 'disabled'].includes(existing.status)) {
@@ -307,16 +310,37 @@ async function upsertRetailerFromFlowData(fromDigits, fromName, rj) {
     })
     if (!existing.retailerId) existing.retailerId = await generateRetailerId()
     await existing.save()
+    retailer = existing
     console.log(`[retailerFromFlow] Updated retailer ${existing.retailerId} → pending_approval`)
-    return existing
+  } else {
+    retailer = await Retailer.create({
+      ...fields,
+      retailerId: await generateRetailerId(),
+      status:     'pending_approval',
+    })
+    console.log(`[retailerFromFlow] Created retailer ${retailer.retailerId} for ${countryCode}${number}`)
   }
 
-  const retailer = await Retailer.create({
-    ...fields,
-    retailerId: await generateRetailerId(),
-    status:     'pending_approval',
-  })
-  console.log(`[retailerFromFlow] Created retailer ${retailer.retailerId} for ${countryCode}${number}`)
+  // Fetch GST and PAN document URLs via Askeva get-media
+  const cid = companyId || 'default'
+  const gstDoc = extractFirstMediaDoc(rj, ['GST document', 'GST Document', 'gst_document', 'gstDocument'])
+  const panDoc = extractFirstMediaDoc(rj, ['PAN document', 'PAN Document', 'pan_document', 'panDocument'])
+  if (gstDoc || panDoc) {
+    try {
+      const [gstUrl, panUrl] = await Promise.all([
+        gstDoc ? fetchAndGetMediaUrl(gstDoc, cid) : null,
+        panDoc ? fetchAndGetMediaUrl(panDoc, cid) : null,
+      ])
+      if (gstUrl || panUrl) {
+        if (gstUrl) retailer.gstAttachmentUrl = gstUrl
+        if (panUrl) retailer.panAttachmentUrl = panUrl
+        await retailer.save()
+      }
+    } catch (err) {
+      console.warn('[retailerFromFlow] Failed to store GST/PAN documents:', err?.message || err)
+    }
+  }
+
   return retailer
 }
 
@@ -342,7 +366,7 @@ async function ensureRetailerFromWebhookMessage(webhookMessageId) {
     return null
   }
   const rj = extractResponseJsonObject(wm.rawPayload) || {}
-  return upsertRetailerFromFlowData(wm.from, wm.fromName || '', rj)
+  return upsertRetailerFromFlowData(wm.from, wm.fromName || '', rj, wm.companyId)
 }
 
 // ─── Exports ───────────────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ const { createOrderFromWebhook, updatePendingOrderDelivery, updatePendingOrderPa
 const { notifyAdminAndSuperAdmin, notifyBillingAgents } = require('../services/notificationService')
 const { generateRetailerId } = require('../utils/retailerId')
 const { responseJsonHasRetailerFormCopy, responseJsonStrHasRetailerFormCopy, responseJsonStringHasRetailerFormCopy, extractResponseJsonObject, getFlowTokenFromResponseJson, verifyWebhookFlowFromRaw, FLOW_TOKEN_RETAILER, FLOW_TOKEN_DELIVERY } = require('../services/retailerFromFlow')
+const { fetchAndGetMediaUrl, extractFirstMediaDoc } = require('../services/whatsappMediaService')
 
 function parseFlowItems(flowData) {
   const raw = flowData.items || flowData.products || flowData.order_items || flowData.product || ''
@@ -218,7 +219,7 @@ function normalizeBranchCount(value) {
   return Number.isNaN(n) || n < 1 ? 1 : n
 }
 
-async function upsertRetailerFromFlow({ fromNumber, fromName, flowData }) {
+async function upsertRetailerFromFlow({ fromNumber, fromName, flowData, companyId }) {
   const formMobile = toDigits(getFlowValue(flowData, ['Mobile Number', 'Phone', 'phone_number', 'mobile', 'Mob', 'phone']))
   const primaryPhone = formMobile.length >= 10 ? formMobile : (fromNumber || '')
   const { countryCode, number } = splitPhoneFromWaId(primaryPhone || fromNumber)
@@ -247,6 +248,7 @@ async function upsertRetailerFromFlow({ fromNumber, fromName, flowData }) {
     whatsappNumber: number,
   })
 
+  let retailer
   if (existingByWhatsApp) {
     if (['active', 'approved', 'disabled'].includes(existingByWhatsApp.status)) return existingByWhatsApp
     if (!existingByWhatsApp.retailerId) {
@@ -271,31 +273,55 @@ async function upsertRetailerFromFlow({ fromNumber, fromName, flowData }) {
     existingByWhatsApp.rejectedReason = ''
     existingByWhatsApp.rejectedAt = null
     await existingByWhatsApp.save()
-    return existingByWhatsApp
+    retailer = existingByWhatsApp
+  } else {
+    retailer = await Retailer.create({
+      retailerId: await generateRetailerId(),
+      businessName: businessName || contactPerson || `Retailer ${number}`,
+      storeName: storeName || '',
+      contactPerson: contactPerson || businessName || 'Retailer',
+      email: email || '',
+      whatsappCountryCode: countryCode,
+      whatsappNumber: number,
+      altContactCountryCode: altContactCountryCode || '',
+      altContactNumber: altContactNumber || '',
+      gst: gst || 'NA',
+      pan: pan || 'NA',
+      street1: street1 || 'NA',
+      street2: street2 || '',
+      city: city || 'NA',
+      district: district || 'NA',
+      state: state || 'NA',
+      pincode: pincode || 'NA',
+      branches: normalizeBranchCount(branchesRaw),
+      status: 'pending_approval',
+    })
   }
 
-  const doc = await Retailer.create({
-    retailerId: await generateRetailerId(),
-    businessName: businessName || contactPerson || `Retailer ${number}`,
-    storeName: storeName || '',
-    contactPerson: contactPerson || businessName || 'Retailer',
-    email: email || '',
-    whatsappCountryCode: countryCode,
-    whatsappNumber: number,
-    altContactCountryCode: altContactCountryCode || '',
-    altContactNumber: altContactNumber || '',
-    gst: gst || 'NA',
-    pan: pan || 'NA',
-    street1: street1 || 'NA',
-    street2: street2 || '',
-    city: city || 'NA',
-    district: district || 'NA',
-    state: state || 'NA',
-    pincode: pincode || 'NA',
-    branches: normalizeBranchCount(branchesRaw),
-    status: 'pending_approval',
-  })
-  return doc
+  // Fetch GST and PAN document URLs via Askeva get-media (from flowResponseData ids)
+  const cid = companyId || COMPANY_ID
+  const gstDoc = extractFirstMediaDoc(flowData, ['GST document', 'GST Document', 'gst_document', 'gstDocument'])
+  const panDoc = extractFirstMediaDoc(flowData, ['PAN document', 'PAN Document', 'pan_document', 'panDocument'])
+  if (gstDoc || panDoc) {
+    console.log('[RetailerWebhook] Flow documents found — GST id:', gstDoc?.id || 'none', '| PAN id:', panDoc?.id || 'none')
+    try {
+      const [gstUrl, panUrl] = await Promise.all([
+        gstDoc ? fetchAndGetMediaUrl(gstDoc, cid) : null,
+        panDoc ? fetchAndGetMediaUrl(panDoc, cid) : null,
+      ])
+      if (gstUrl || panUrl) {
+        if (gstUrl) retailer.gstAttachmentUrl = gstUrl
+        if (panUrl) retailer.panAttachmentUrl = panUrl
+        await retailer.save()
+        if (gstUrl) console.log('[RetailerWebhook] GST document stored:', retailer.retailerId)
+        if (panUrl) console.log('[RetailerWebhook] PAN document stored:', retailer.retailerId)
+      }
+    } catch (err) {
+      console.warn('[RetailerWebhook] Failed to store GST/PAN documents:', err?.message || err)
+    }
+  }
+
+  return retailer
 }
 
 /**
@@ -450,7 +476,7 @@ exports.receiveRetailerWebhook = async (req, res) => {
 
       if (isRetailerFormWithPhone) {
         try {
-          const retailer = await upsertRetailerFromFlow({ fromNumber, fromName, flowData: body })
+          const retailer = await upsertRetailerFromFlow({ fromNumber, fromName, flowData: body, companyId })
           console.log('[RetailerWebhook] Retailer onboarded (flat retailer_form_copy):', retailer?.retailerId, '| status:', retailer?.status)
           notifyAdminAndSuperAdmin(
             'New retailer from WhatsApp',
@@ -534,7 +560,7 @@ exports.receiveRetailerWebhook = async (req, res) => {
         if (!earlyFrom) earlyFrom = toDigits(getFlowValue(flowData, ['Mobile Number', 'Phone', 'phone_number', 'mobile', 'Mob', 'phone', 'contactNumber']))
         const earlyFromName = firstContact?.profile?.name || getFlowValue(flowData, ['Name', 'Contact Person']) || ''
         if (earlyFrom) {
-          const retailer = await upsertRetailerFromFlow({ fromNumber: earlyFrom, fromName: earlyFromName, flowData })
+          const retailer = await upsertRetailerFromFlow({ fromNumber: earlyFrom, fromName: earlyFromName, flowData, companyId })
           console.log('[RetailerWebhook] EARLY retailer INSERT (flow_token retailer_form_copy):', retailer?.retailerId, '| status:', retailer?.status)
         }
       } catch (earlyErr) {
@@ -738,7 +764,7 @@ exports.receiveRetailerWebhook = async (req, res) => {
                 const fromForRetailer = from || toDigits(getFlowValue(flowData, ['Mobile Number', 'Phone', 'phone_number', 'mobile', 'Mob', 'phone']))
                 if (fromForRetailer) {
                   try {
-                    const retailer = await upsertRetailerFromFlow({ fromNumber: fromForRetailer, fromName, flowData })
+                    const retailer = await upsertRetailerFromFlow({ fromNumber: fromForRetailer, fromName, flowData, companyId })
                     retailerFromFlow = retailer
                     console.log('[RetailerWebhook] IDENTIFY | RETAILER created/updated | retailerId:', retailer?.retailerId, '| status:', retailer?.status, '| from:', from)
                     notifyAdminAndSuperAdmin(
@@ -755,7 +781,7 @@ exports.receiveRetailerWebhook = async (req, res) => {
                   const fallbackFrom = toDigits(contacts[0]?.wa_id || getFlowValue(flowData, ['Mobile Number', 'Phone', 'phone_number', 'mobile']))
                   if (fallbackFrom) {
                     try {
-                      const retailer = await upsertRetailerFromFlow({ fromNumber: fallbackFrom, fromName: fromName || getFlowValue(flowData, ['Name', 'Contact Person']) || '', flowData })
+                      const retailer = await upsertRetailerFromFlow({ fromNumber: fallbackFrom, fromName: fromName || getFlowValue(flowData, ['Name', 'Contact Person']) || '', flowData, companyId })
                       retailerFromFlow = retailer
                       console.log('[RetailerWebhook] IDENTIFY | RETAILER created (fallback phone) | retailerId:', retailer?.retailerId, '| from:', fallbackFrom)
                     } catch (err) {
@@ -919,7 +945,7 @@ exports.receiveRetailerWebhook = async (req, res) => {
           if (!fallbackFrom) fallbackFrom = toDigits(getFlowValue(flowData, ['Mobile Number', 'Phone', 'phone_number', 'mobile', 'Mob', 'phone', 'contactNumber']))
           if (fallbackFrom) {
             try {
-              const r = await upsertRetailerFromFlow({ fromNumber: fallbackFrom, fromName: fallbackName, flowData })
+              const r = await upsertRetailerFromFlow({ fromNumber: fallbackFrom, fromName: fallbackName, flowData, companyId })
               console.log('[RetailerWebhook] Retailer onboarded (retailer_form_copy):', r?.retailerId, '| status:', r?.status)
               const msgIds = stored.filter((s) => (s.from && toDigits(s.from) === fallbackFrom)).map((s) => s.id)
               if (r && msgIds.length > 0) {
@@ -1154,7 +1180,7 @@ exports.testRetailerWebhook = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Could not extract phone (from or Mobile Number) from payload' })
     }
     const companyId = req.params.companyId || COMPANY_ID
-    const retailer = await upsertRetailerFromFlow({ fromNumber: from, fromName, flowData })
+    const retailer = await upsertRetailerFromFlow({ fromNumber: from, fromName, flowData, companyId })
     const webhookMessageId = req.body?.webhookMessageId || req.query?.webhookMessageId
     if (webhookMessageId && retailer) {
       await WebhookMessage.updateOne(
