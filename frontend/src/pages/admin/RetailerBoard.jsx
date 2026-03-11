@@ -45,6 +45,15 @@ const { Link } = Typography
 const { useBreakpoint } = Grid
 
 const ALLOWED_UPLOAD_ACCEPT = '.pdf,.jpg,.jpeg,.png'
+const TRUNCATE_NAME_LEN = 22
+
+function shortFileName(url) {
+  if (!url) return ''
+  try {
+    const name = url.split('/').pop()?.split('?')[0] || 'document'
+    return name.length > TRUNCATE_NAME_LEN ? `${name.slice(0, TRUNCATE_NAME_LEN - 3)}...` : name
+  } catch { return 'document' }
+}
 const STATUS_DISPLAY = {
   pending_approval: 'Pending',
   approved: 'Approved',
@@ -91,6 +100,7 @@ const RetailerBoard = () => {
   const [rejectRetailer] = useRejectRetailerMutation()
   const [setRetailerStatus] = useSetRetailerStatusMutation()
   const [uploadFile, { isLoading: uploading }] = useUploadRetailerFileMutation()
+  const [uploadingField, setUploadingField] = useState(null)
   const [triggerExport, { isLoading: exporting }] = useLazyExportRetailersQuery()
   const [triggerSample, { isLoading: sampleLoading }] = useLazyDownloadImportSampleQuery()
   const [importRetailers, { isLoading: importMutationLoading }] = useImportRetailersMutation()
@@ -170,7 +180,7 @@ const RetailerBoard = () => {
   ]
 
   const approvedColumns = [
-    ...requestColumns.slice(0, -2),
+    ...requestColumns.slice(0, -3),
     {
       title: 'Status',
       dataIndex: 'status',
@@ -216,7 +226,7 @@ const RetailerBoard = () => {
   ]
 
   const rejectedColumns = [
-    ...requestColumns.slice(0, -2),
+    ...requestColumns.slice(0, -3),
     {
       title: 'Reject Reason',
       dataIndex: 'rejectedReason',
@@ -422,6 +432,7 @@ const RetailerBoard = () => {
         message.error('Only PDF, JPEG, JPG and PNG are allowed')
         return
       }
+      setUploadingField(fieldName)
       try {
         const fd = new FormData()
         fd.append('file', file)
@@ -429,6 +440,8 @@ const RetailerBoard = () => {
         if (res?.url) formInstance.setFieldValue(fieldName, res.url)
       } catch (err) {
         message.error(getUploadErrorMessage(err))
+      } finally {
+        setUploadingField(null)
       }
     },
     [uploadFile]
@@ -496,7 +509,7 @@ const RetailerBoard = () => {
 
   const formItemStyle = { marginBottom: 20 }
 
-  const sharedFormItems = (formInstance, isCreate, attachmentUrls = {}) => {
+  const sharedFormItems = (formInstance, isCreate, attachmentUrls = {}, uploadFieldState = null) => {
     const { gstUrl = '', panUrl = '' } = attachmentUrls
     if (!formInstance) return null
     return (
@@ -527,58 +540,74 @@ const RetailerBoard = () => {
       >
         <Input type="email" />
       </Form.Item>
-      <Row gutter={12} style={{ marginBottom: 20 }}>
-        <Col span={14}>
+      <Row gutter={16} style={{ marginBottom: 20 }}>
+        <Col xs={24} md={14}>
           <Form.Item name="gst" label="GST Number" rules={[{ required: true }]}>
             <Input placeholder="GST Number" />
           </Form.Item>
         </Col>
-        <Col span={10}>
+        <Col xs={24} md={10}>
           <Form.Item name="gstAttachmentUrl" hidden>
             <Input type="hidden" />
           </Form.Item>
-          <Form.Item label="GST Attachment" tooltip="PDF, JPEG, JPG, PNG only">
-            <Space>
-              <Upload
-                maxCount={1}
-                accept={ALLOWED_UPLOAD_ACCEPT}
-                beforeUpload={(file) => {
-                  handleFileUpload(formInstance, file, 'gstAttachmentUrl')
-                  return false
-                }}
-                showUploadList={{ showPreviewIcon: false }}
-              >
-                <Button icon={<UploadOutlined />} loading={uploading}>Upload</Button>
-              </Upload>
-              {gstUrl && <Link href={gstUrl} target="_blank" rel="noopener noreferrer">View file</Link>}
+          <Form.Item label="GST Attachment" tooltip="PDF, JPEG, JPG, PNG only" style={{ marginBottom: 0 }}>
+            <Space size="middle" wrap align="center">
+                <Upload
+                  maxCount={1}
+                  accept={ALLOWED_UPLOAD_ACCEPT}
+                  beforeUpload={(file) => {
+                    handleFileUpload(formInstance, file, 'gstAttachmentUrl')
+                    return false
+                  }}
+                  showUploadList={false}
+                >
+                  <Button icon={<UploadOutlined />} loading={uploadFieldState === 'gstAttachmentUrl'}>Upload</Button>
+                </Upload>
+                {gstUrl && (
+                  <Space size="small">
+                    <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={shortFileName(gstUrl)}>
+                      {shortFileName(gstUrl)}
+                    </span>
+                    <Link href={gstUrl} target="_blank" rel="noopener noreferrer">View</Link>
+                    <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => formInstance.setFieldValue('gstAttachmentUrl', '')} title="Remove file" aria-label="Remove file" />
+                  </Space>
+                )}
             </Space>
           </Form.Item>
         </Col>
       </Row>
-      <Row gutter={12} style={{ marginBottom: 20 }}>
-        <Col span={14}>
+      <Row gutter={16} style={{ marginBottom: 20 }}>
+        <Col xs={24} md={14}>
           <Form.Item name="pan" label="PAN Number" rules={[{ required: true }]}>
             <Input placeholder="PAN Number" />
           </Form.Item>
         </Col>
-        <Col span={10}>
+        <Col xs={24} md={10}>
           <Form.Item name="panAttachmentUrl" hidden>
             <Input type="hidden" />
           </Form.Item>
-          <Form.Item label="PAN Attachment" tooltip="PDF, JPEG, JPG, PNG only">
-            <Space>
-              <Upload
-                maxCount={1}
-                accept={ALLOWED_UPLOAD_ACCEPT}
-                beforeUpload={(file) => {
-                  handleFileUpload(formInstance, file, 'panAttachmentUrl')
-                  return false
-                }}
-                showUploadList={{ showPreviewIcon: false }}
-              >
-                <Button icon={<UploadOutlined />} loading={uploading}>Upload</Button>
-              </Upload>
-              {panUrl && <Link href={panUrl} target="_blank" rel="noopener noreferrer">View file</Link>}
+          <Form.Item label="PAN Attachment" tooltip="PDF, JPEG, JPG, PNG only" style={{ marginBottom: 0 }}>
+            <Space size="middle" wrap align="center">
+                <Upload
+                  maxCount={1}
+                  accept={ALLOWED_UPLOAD_ACCEPT}
+                  beforeUpload={(file) => {
+                    handleFileUpload(formInstance, file, 'panAttachmentUrl')
+                    return false
+                  }}
+                  showUploadList={false}
+                >
+                  <Button icon={<UploadOutlined />} loading={uploadFieldState === 'panAttachmentUrl'}>Upload</Button>
+                </Upload>
+                {panUrl && (
+                  <Space size="small">
+                    <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={shortFileName(panUrl)}>
+                      {shortFileName(panUrl)}
+                    </span>
+                    <Link href={panUrl} target="_blank" rel="noopener noreferrer">View</Link>
+                    <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => formInstance.setFieldValue('panAttachmentUrl', '')} title="Remove file" aria-label="Remove file" />
+                  </Space>
+                )}
             </Space>
           </Form.Item>
         </Col>
@@ -661,7 +690,7 @@ const RetailerBoard = () => {
         styles={{ body: { maxHeight: '70vh', overflowY: 'auto', overflowX: 'hidden', paddingRight: 16 } }}
       >
         <Form form={createForm} layout="vertical" style={{ maxWidth: '100%' }}>
-          {sharedFormItems(createForm, true, { gstUrl: gstUrlCreate, panUrl: panUrlCreate })}
+          {sharedFormItems(createForm, true, { gstUrl: gstUrlCreate, panUrl: panUrlCreate }, uploadingField)}
         </Form>
       </Modal>
 
@@ -675,7 +704,7 @@ const RetailerBoard = () => {
         styles={{ body: { maxHeight: '70vh', overflowY: 'auto', overflowX: 'hidden', paddingRight: 16 } }}
       >
         <Form form={form} layout="vertical" style={{ maxWidth: '100%' }}>
-          {sharedFormItems(form, false, { gstUrl: gstUrlEdit, panUrl: panUrlEdit })}
+          {sharedFormItems(form, false, { gstUrl: gstUrlEdit, panUrl: panUrlEdit }, uploadingField)}
         </Form>
       </Modal>
 
