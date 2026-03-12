@@ -889,17 +889,6 @@ const WhatsAppIntegration = () => {
                             disabled={!selectedEventType}
                           />
                         </Form.Item>
-                        <Form.Item label="Default Value (optional)">
-                          <Input
-                            placeholder="Use if field value is missing"
-                            value={vm.defaultValue}
-                            onChange={(e) => {
-                              const next = [...variableMappings]
-                              next[index] = { ...next[index], defaultValue: e.target.value }
-                              setVariableMappings(next)
-                            }}
-                          />
-                        </Form.Item>
                         {!selectedTemplate?.variablePlaceholders?.length && (
                           <Button danger size="small" onClick={() => handleRemoveVariableMapping(index)}>
                             Remove
