@@ -319,12 +319,20 @@ const RetailerBoard = () => {
   }
 
   const handleApprove = async (record) => {
-    try {
-      await approveRetailer(record._id).unwrap()
-      message.success(`${record.businessName} has been approved`)
-    } catch (e) {
-      message.error(e?.data?.message || 'Approve failed')
-    }
+    Modal.confirm({
+      title: 'Approve Retailer',
+      content: `Are you sure you want to approve "${record.businessName}"?`,
+      okText: 'Yes',
+      cancelText: 'No',
+      onOk: async () => {
+        try {
+          await approveRetailer(record._id).unwrap()
+          message.success(`${record.businessName} has been approved`)
+        } catch (e) {
+          message.error(e?.data?.message || 'Approve failed')
+        }
+      },
+    })
   }
 
   const handleRejectSubmit = async () => {
