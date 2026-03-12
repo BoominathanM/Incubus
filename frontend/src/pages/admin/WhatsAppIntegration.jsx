@@ -69,6 +69,7 @@ const INCUBUS_EVENT_OPTIONS = [
 
 const TEMPLATE_FIELD_OPTIONS = [
   { value: 'Order ID', label: 'Order ID' },
+  { value: 'Reference ID', label: 'Reference ID' },
   { value: 'Contact Name', label: 'Contact Name' },
   { value: 'Contact Number', label: 'Contact Number' },
   { value: 'Amount', label: 'Amount' },
@@ -78,17 +79,23 @@ const TEMPLATE_FIELD_OPTIONS = [
   { value: 'Delivery Status', label: 'Delivery Status' },
   { value: 'Delivery Type', label: 'Delivery Type' },
   { value: 'Tracking URL', label: 'Tracking URL' },
-  { value: 'Retailer ID', label: 'Retailer ID' },
+  { value: 'Delivery Address', label: 'Delivery Address' },
   { value: 'Business Name', label: 'Business Name' },
   { value: 'Store Name', label: 'Store Name' },
   { value: 'Contact Person', label: 'Contact Person' },
   { value: 'WhatsApp Number', label: 'WhatsApp Number' },
   { value: 'Status', label: 'Status' },
-  { value: 'Rejected Reason', label: 'Rejected Reason' },
-  { value: 'Approved Date', label: 'Approved Date' },
-  { value: 'Rejected Date', label: 'Rejected Date' },
-  { value: 'Address', label: 'Address' },
 ]
+
+/** Incubus fields allowed per event type (only these show in dropdown) */
+const INCUBUS_FIELDS_BY_EVENT_TYPE = {
+  'Billing Verification': ['Order ID', 'Reference ID', 'Contact Name', 'Contact Number', 'Amount', 'Billing Status', 'Delivery Address', 'Status'],
+  'Billing Invoice Generate': ['Order ID', 'Reference ID', 'Contact Name', 'Contact Number', 'Amount', 'Billing Status', 'Delivery Address', 'Invoice Number'],
+  'Dispatch Order': ['Order ID', 'Reference ID', 'Contact Name', 'Contact Number', 'Amount', 'Billing Status', 'Delivery Address', 'Invoice Number', 'Dispatch Status'],
+  'Delivery Completed': ['Reference ID', 'Order ID', 'Contact Name', 'Contact Number', 'Amount', 'Billing Status', 'Delivery Address', 'Invoice Number', 'Dispatch Status', 'Delivery Type', 'Tracking URL', 'Delivery Status'],
+  'Approve Retailer': ['Business Name', 'Store Name', 'Contact Person', 'WhatsApp Number', 'Status'],
+  'Reject Retailer': ['Business Name', 'Store Name', 'Contact Person', 'WhatsApp Number', 'Status'],
+}
 
 const WhatsAppIntegration = () => {
   const screens = useBreakpoint()
@@ -98,6 +105,7 @@ const WhatsAppIntegration = () => {
   const [activeTab, setActiveTab] = useState('configuration')
   const [form] = Form.useForm()
   const [eventForm] = Form.useForm()
+  const selectedEventType = Form.useWatch('hrmsEventType', eventForm)
   const [eventModalVisible, setEventModalVisible] = useState(false)
   const [disconnectModalVisible, setDisconnectModalVisible] = useState(false)
   const [selectedTemplate, setSelectedTemplate] = useState(null)
@@ -457,11 +465,10 @@ const WhatsAppIntegration = () => {
     setVariableMappings(template ? buildVariableMappingsFromTemplate(template) : [])
   }
 
-  const handleAddVariableMapping = () => {
-    setVariableMappings([
-      ...variableMappings,
-      { templateVariable: `{{${variableMappings.length + 1}}}`, hrmsField: '', defaultValue: '', mapped: false },
-    ])
+  const getFieldOptionsForEventType = () => {
+    const allowed = selectedEventType ? INCUBUS_FIELDS_BY_EVENT_TYPE[selectedEventType] : null
+    if (!allowed) return TEMPLATE_FIELD_OPTIONS
+    return TEMPLATE_FIELD_OPTIONS.filter((o) => allowed.includes(o.value))
   }
 
   const handleRemoveVariableMapping = (index) => {
@@ -871,14 +878,15 @@ const WhatsAppIntegration = () => {
                         </Form.Item>
                         <Form.Item label="Incubus Field" required>
                           <Select
-                            placeholder="Select field"
+                            placeholder={selectedEventType ? 'Select field' : 'Select Incubus Event Type first'}
                             value={vm.hrmsField || undefined}
                             onChange={(val) => {
                               const next = [...variableMappings]
                               next[index] = { ...next[index], hrmsField: val, mapped: !!val }
                               setVariableMappings(next)
                             }}
-                            options={TEMPLATE_FIELD_OPTIONS}
+                            options={getFieldOptionsForEventType()}
+                            disabled={!selectedEventType}
                           />
                         </Form.Item>
                         <Form.Item label="Default Value (optional)">
@@ -914,11 +922,6 @@ const WhatsAppIntegration = () => {
                 >
                   <Text style={{ color: isDarkTheme ? '#d9d9d9' : undefined }}>This template has no variables.</Text>
                 </div>
-              )}
-              {(!selectedTemplate?.variablePlaceholders?.length || variableMappings.length === 0) && (
-                <Button type="dashed" icon={<PlusOutlined />} onClick={handleAddVariableMapping} style={{ width: '100%' }}>
-                  Add Variable Mapping
-                </Button>
               )}
             </div>
           ) : (
